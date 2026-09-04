@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#120d1b" />
+    <meta
+      name="description"
+      content="Grape Gripe turns a one-sided story into a place you can explore."
+    />
+    <title>Grape Gripe — Playable Branch</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main id="game-shell" aria-label="Grape Gripe playable branch">
+      <canvas
+        id="world"
+        aria-label="A top-down memory landscape. Move with the joystick or arrow keys and follow the objective."
+      ></canvas>
+
+      <section class="hud" aria-label="Game status">
+        <div class="status-cluster">
+          <p class="wordmark">GRAPE.GRIPE</p>
+          <p id="location-label" class="location-label">THE ROOTWAY</p>
+          <p id="objective-label" class="objective-label">Reach the pulsing branch</p>
+          <p id="route-label" class="route-label">Follow the acid-green signal</p>
+        </div>
+
+        <button id="map-button" class="map-button" type="button" aria-label="Open route details">
+          <canvas id="minimap" width="216" height="152" aria-hidden="true"></canvas>
+          <span id="map-caption">BRANCH · 0m</span>
+        </button>
+      </section>
+
+      <div id="progress-badge" class="progress-badge" hidden>
+        <span aria-hidden="true">◆</span>
+        <span>1 branch untangled</span>
+      </div>
+
+      <div id="coachmark" class="coachmark" role="status">
+        <strong>Joystick to drift.</strong>
+        <span>Minimap to wonder.</span>
+      </div>
+
+      <div id="joystick-zone" class="joystick-zone" aria-label="Movement joystick">
+        <div id="joystick-base" class="joystick-base" aria-hidden="true">
+          <div id="joystick-knob" class="joystick-knob"></div>
+        </div>
+        <span class="joystick-label">DRIFT</span>
+      </div>
+
+      <div class="action-cluster">
+        <button
+          id="companion-button"
+          class="companion-button"
+          type="button"
+          aria-expanded="false"
+          aria-controls="companion-panel"
+        >
+          <span class="companion-icon" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span>COMPANION</span>
+        </button>
+        <button id="action-button" class="action-button" type="button" disabled>
+          <span class="action-pulse" aria-hidden="true"></span>
+          <span id="action-label">MOVE CLOSER</span>
+        </button>
+      </div>
+
+      <aside id="companion-panel" class="companion-panel" hidden>
+        <div class="panel-heading">
+          <div>
+            <p class="eyebrow">YOUR COMPANION</p>
+            <h2>Look twice.</h2>
+          </div>
+          <button id="close-companion" class="icon-button" type="button" aria-label="Close companion panel">×</button>
+        </div>
+        <p id="companion-thought" class="companion-thought">
+          Something happened. Meaning grew around it. Let’s find both.
+        </p>
+        <div class="ability-grid" role="group" aria-label="Companion abilities">
+          <button class="ability-button" type="button" data-ability="scan">
+            <strong>Scan</strong><span>Reveal the useful clue</span>
+          </button>
+          <button class="ability-button" type="button" data-ability="reframe">
+            <strong>Reframe</strong><span>Try another reading</span>
+          </button>
+          <button class="ability-button" type="button" data-ability="ask">
+            <strong>Ask</strong><span>Find the missing question</span>
+          </button>
+        </div>
+      </aside>
+
+      <div id="sheet-backdrop" class="sheet-backdrop" hidden></div>
+      <section
+        id="story-sheet"
+        class="story-sheet"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="sheet-title"
+        hidden
+      >
+        <div class="sheet-handle" aria-hidden="true"></div>
+        <div id="sheet-content"></div>
+      </section>
+
+      <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+
+      <button id="sound-toggle" class="sound-toggle" type="button" aria-pressed="false" aria-label="Turn ambient sound on">
+        SOUND OFF
+      </button>
+    </main>
+
+    <noscript>This playable branch needs JavaScript enabled.</noscript>
+    <script src="./game.js" defer></script>
+  </body>
+</html>
