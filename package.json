@@ -4,9 +4,10 @@
   "private": true,
   "description": "A graphics-first mobile action journey through the Gripevine.",
   "scripts": {
-    "test": "node scripts/validate.mjs"
+    "test": "node scripts/validate.mjs && node --test tests/*.test.mjs"
   },
   "engines": {
     "node": ">=20"
-  }
+  },
+  "type": "module"
 }

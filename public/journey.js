@@ -1,3 +1,8 @@
+import { Terrain } from './engine/terrain.mjs';
+import { terrainDefinitions } from './engine/terrain-data.mjs';
+import { createAnimator, advanceAnimator, sampleAnimation } from './engine/animation.mjs';
+import { heroAtlas } from './engine/hero-atlas.mjs';
+
 const $ = (id) => document.getElementById(id);
 
 const canvas = $('world');
@@ -40,6 +45,7 @@ const imagePaths = {
   heroFront: './assets/grape-fighter.webp',
   heroBack: './assets/grape-fighter-back.webp',
   heroSide: './assets/grape-fighter-side.webp',
+  heroWalk: './assets/hero-walk.webp',
   sourling: './assets/sourling.webp',
   moth: './assets/rumor-moth.webp',
   brute: './assets/thorn-brute.webp',
@@ -51,80 +57,41 @@ const regions = [
     key: 'root',
     name: 'Root Cellar',
     tint: '#d9ff45',
-    widthFactor: 0.88,
-    path: [
-      [0.04, 0.50, 0.18],
-      [0.24, 0.50, 0.25],
-      [0.45, 0.56, 0.23],
-      [0.67, 0.43, 0.24],
-      [0.96, 0.50, 0.22],
-    ],
     encounters: [
-      { p: 0.72, types: ['sourling', 'sourling', 'moth'] },
-      { p: 0.44, types: ['sourling', 'moth', 'sourling', 'brute'] },
-      { p: 0.22, types: ['moth', 'sourling', 'moth', 'brute'] },
+      { types: ['sourling', 'sourling', 'moth'] },
+      { types: ['sourling', 'moth', 'sourling', 'brute'] },
+      { types: ['moth', 'sourling', 'moth', 'brute'] },
     ],
-    secret: { p: 0.57, side: 0.78 },
   },
   {
     key: 'vineway',
     name: 'Vineway',
     tint: '#ffd462',
-    widthFactor: 0.92,
-    path: [
-      [0.04, 0.52, 0.22],
-      [0.23, 0.46, 0.28],
-      [0.43, 0.62, 0.31],
-      [0.62, 0.38, 0.27],
-      [0.82, 0.52, 0.25],
-      [0.96, 0.50, 0.21],
-    ],
     encounters: [
-      { p: 0.78, types: ['moth', 'sourling', 'sourling'] },
-      { p: 0.55, types: ['moth', 'moth', 'sourling', 'brute'] },
-      { p: 0.30, types: ['sourling', 'brute', 'moth', 'sourling', 'moth'] },
+      { types: ['moth', 'sourling', 'sourling'] },
+      { types: ['moth', 'moth', 'sourling', 'brute'] },
+      { types: ['sourling', 'brute', 'moth', 'sourling', 'moth'] },
     ],
-    secret: { p: 0.48, side: -0.82 },
   },
   {
     key: 'press',
     name: 'Press Pit',
     tint: '#ff5aa9',
-    widthFactor: 0.78,
-    path: [
-      [0.04, 0.50, 0.16],
-      [0.22, 0.50, 0.20],
-      [0.42, 0.50, 0.39],
-      [0.66, 0.50, 0.40],
-      [0.87, 0.50, 0.21],
-      [0.96, 0.50, 0.17],
-    ],
     encounters: [
-      { p: 0.69, types: ['sourling', 'sourling', 'moth', 'sourling'] },
-      { p: 0.49, types: ['moth', 'brute', 'moth', 'brute'] },
-      { p: 0.31, types: ['brute', 'sourling', 'moth', 'sourling', 'brute'] },
+      { types: ['sourling', 'sourling', 'moth', 'sourling'] },
+      { types: ['moth', 'brute', 'moth', 'brute'] },
+      { types: ['brute', 'sourling', 'moth', 'sourling', 'brute'] },
     ],
-    secret: { p: 0.42, side: 0.82 },
   },
   {
     key: 'sourwood',
     name: 'Sourwood',
     tint: '#ba68ff',
-    widthFactor: 0.92,
-    path: [
-      [0.04, 0.50, 0.29],
-      [0.20, 0.50, 0.36],
-      [0.38, 0.43, 0.24],
-      [0.55, 0.61, 0.27],
-      [0.73, 0.42, 0.25],
-      [0.96, 0.50, 0.20],
-    ],
     encounters: [
-      { p: 0.77, types: ['sourling', 'moth', 'sourling', 'moth'] },
-      { p: 0.52, types: ['brute', 'moth', 'brute', 'sourling'] },
-      { p: 0.22, types: ['boss', 'moth', 'sourling'] },
+      { types: ['sourling', 'moth', 'sourling', 'moth'] },
+      { types: ['brute', 'moth', 'brute', 'sourling'] },
+      { types: ['boss', 'moth', 'sourling'] },
     ],
-    secret: { p: 0.62, side: -0.84 },
   },
 ];
 
@@ -136,10 +103,16 @@ const enemyTypes = {
 };
 
 const images = {};
+let assetsReady = false;
 const prefersReducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
-const tutorialDone = localStorage.getItem('grape-gripe-journey-tutorial') === 'done';
+const readSaved = (key) => { try { return localStorage.getItem(key); } catch { return null; } };
+const writeSaved = (key, value) => { try { localStorage.setItem(key, value); } catch { /* Play remains available without browser storage. */ } };
+const tutorialDone = readSaved('grape-gripe-journey-tutorial') === 'done';
+const terrainDebug = new URLSearchParams(location.search).has('terrain');
+const terrains = new Map();
 
-let viewport = { width: 0, height: 0, dpr: 1 };
+let viewport = { width: 0, height: 0, dpr: 1, zoom: 1 };
+let accumulator = 0;
 let lastFrame = performance.now();
 let nextId = 1;
 let audioContext = null;
@@ -154,6 +127,7 @@ const input = {
   joyOriginY: 0,
   keys: new Set(),
   tapTarget: null,
+  route: [],
   attackHeld: false,
 };
 
@@ -170,6 +144,9 @@ const state = {
   regionClear: false,
   travelTimer: 0,
   regionIntro: 0,
+  clearTimer: 0,
+  terrain: null,
+  guidance: { route: [], timer: 0, revision: -1 },
   shake: 0,
   flash: 0,
   lastStraw: 0,
@@ -204,8 +181,8 @@ function distance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
-function gameScale() {
-  return clamp(Math.min(viewport.width / 430, viewport.height / 860), 0.76, 1.2);
+function viewZoom() {
+  return viewport.zoom;
 }
 
 function announce(message) {
@@ -229,46 +206,30 @@ function setDirection(hero, x, y) {
   hero.facingY = y;
 }
 
-function pathAt(y) {
-  const region = regions[state.regionIndex];
-  const p = clamp(y / state.world.height, 0, 1);
-  const points = region.path;
-  for (let i = 0; i < points.length - 1; i += 1) {
-    const a = points[i];
-    const b = points[i + 1];
-    if (p >= a[0] && p <= b[0]) {
-      const t = (p - a[0]) / (b[0] - a[0]);
-      return {
-        x: lerp(a[1], b[1], t) * state.world.width,
-        width: lerp(a[2], b[2], t) * state.world.width,
-      };
-    }
-  }
-  const end = p < points[0][0] ? points[0] : points[points.length - 1];
-  return { x: end[1] * state.world.width, width: end[2] * state.world.width };
+function currentTerrainData() {
+  return terrainDefinitions[regions[state.regionIndex].key];
 }
 
-function keepOnPath(entity, allowance = 1) {
-  entity.y = clamp(entity.y, 58 * gameScale(), state.world.height - 58 * gameScale());
-  const path = pathAt(entity.y);
-  const half = Math.max(54 * gameScale(), path.width * allowance);
-  entity.x = clamp(entity.x, path.x - half, path.x + half);
+function asPoint(value) {
+  return { x: value[0], y: value[1] };
 }
 
-function configureWorld(preserve = true) {
-  const region = regions[state.regionIndex];
-  const previous = { ...state.world };
-  const oldHero = state.hero ? { x: state.hero.x / previous.width, y: state.hero.y / previous.height } : null;
-  const width = Math.max(viewport.width * 1.48, viewport.height * region.widthFactor);
-  const image = images[region.key];
-  const ratio = image?.naturalHeight && image?.naturalWidth ? image.naturalHeight / image.naturalWidth : 1.777;
-  state.world.width = width;
-  state.world.height = Math.max(viewport.height * 1.28, width * ratio);
-  if (preserve && oldHero && state.hero) {
-    state.hero.x = oldHero.x * state.world.width;
-    state.hero.y = oldHero.y * state.world.height;
-    keepOnPath(state.hero, 0.93);
-  }
+function moveActor(entity, dx, dy) {
+  const result = state.terrain.move(entity, dx, dy, entity.footRadius);
+  const oldX = entity.x, oldY = entity.y;
+  entity.x = result.x;
+  entity.y = result.y;
+  if (Math.abs(result.x - oldX) < 0.001) entity.vx = 0;
+  if (Math.abs(result.y - oldY) < 0.001) entity.vy = 0;
+  return result;
+}
+
+function configureWorld() {
+  const key = regions[state.regionIndex].key;
+  const definition = terrainDefinitions[key];
+  state.world = { width: definition.width, height: definition.height };
+  if (!terrains.has(key)) terrains.set(key, new Terrain(definition));
+  state.terrain = terrains.get(key);
   seedAmbience();
   updateCamera(1);
 }
@@ -277,13 +238,16 @@ function resize() {
   viewport.width = shell.clientWidth;
   viewport.height = shell.clientHeight;
   viewport.dpr = Math.min(devicePixelRatio || 1, 2);
+  viewport.zoom = clamp(Math.min(viewport.width / 430, viewport.height / 860), 0.76, 1.2);
   canvas.width = Math.round(viewport.width * viewport.dpr);
   canvas.height = Math.round(viewport.height * viewport.dpr);
   canvas.style.width = `${viewport.width}px`;
   canvas.style.height = `${viewport.height}px`;
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  if (state.mode !== 'loading') configureWorld(true);
+  // Resize the view, never actor coordinates, terrain, gates or projectiles.
+  updateCamera(1);
+  clearInput();
 }
 
 function seedAmbience() {
@@ -324,6 +288,8 @@ function resetHero() {
     dashY: -1,
     invulnerable: 0,
     shieldPulse: 0,
+    footRadius: 14,
+    animator: createAnimator(),
     walkCycle: 0,
     trail: [],
   };
@@ -337,7 +303,10 @@ function resetGame() {
   state.regionIndex = 0;
   state.pendingRegion = 0;
   state.upgrades = { power: 0, speed: 0, shield: 0 };
-  state.tutorial = tutorialDone ? 2 : 0;
+  state.tutorial = readSaved('grape-gripe-journey-tutorial') === 'done' ? 2 : 0;
+  state.clearTimer = 0;
+  accumulator = 0;
+  clearInput();
   resetHero();
   enterRegion(0, true);
 }
@@ -349,6 +318,7 @@ function showGameControls(show) {
   mapButton.hidden = !show;
   joystickZone.hidden = !show;
   actionCluster.hidden = !show;
+  tutorialFocus.hidden = !show || state.tutorial !== 0;
 }
 
 function hideOverlays() {
@@ -360,12 +330,14 @@ function hideOverlays() {
 }
 
 function enterRegion(index, fresh = false) {
+  clearInput();
   state.regionIndex = index;
   state.pendingRegion = index;
   state.mode = 'playing';
   state.encounterIndex = 0;
   state.regionClear = false;
   state.regionIntro = 2.3;
+  state.clearTimer = 0;
   state.gate = null;
   state.enemies = [];
   state.bolts = [];
@@ -375,30 +347,17 @@ function enterRegion(index, fresh = false) {
   state.shockwaves = [];
   state.spawnQueue = [];
   state.ultimate = null;
+  state.guidance = { route: [], timer: 0, revision: -1 };
   hideOverlays();
-  configureWorld(false);
-
-  const spawnY = state.world.height * 0.93;
-  const spawnPath = pathAt(spawnY);
-  state.hero.x = spawnPath.x;
-  state.hero.y = spawnY;
-  state.hero.vx = 0;
-  state.hero.vy = 0;
-  state.hero.direction = 6;
-  state.hero.facingX = 0;
-  state.hero.facingY = -1;
+  configureWorld();
+  state.terrain.setGates();
+  const data = currentTerrainData();
+  Object.assign(state.hero, asPoint(data.spawn), {
+    vx: 0, vy: 0, direction: 6, facingX: 0, facingY: -1,
+    dashTime: 0, attackAnim: 0, trail: [], animator: createAnimator(),
+  });
   if (!fresh) state.hero.health = Math.min(state.hero.maxHealth, state.hero.health + 28);
-
-  const secretConfig = regions[index].secret;
-  const secretY = state.world.height * secretConfig.p;
-  const secretPath = pathAt(secretY);
-  state.secret = {
-    x: secretPath.x + secretPath.width * secretConfig.side,
-    y: secretY,
-    collected: false,
-    phase: Math.random() * Math.PI * 2,
-  };
-
+  state.secret = { ...asPoint(data.secret), collected: false, phase: Math.random() * Math.PI * 2 };
   updateCamera(1);
   updateRouteUI();
   updateTutorialUI();
@@ -409,6 +368,8 @@ function enterRegion(index, fresh = false) {
 }
 
 function beginTravel() {
+  if (state.mode !== 'clearing') return;
+  clearInput();
   if (state.regionIndex >= regions.length - 1) {
     finishGame(true);
     return;
@@ -430,7 +391,11 @@ function completeRegion() {
   sound('clear');
   burstParticles(state.hero.x, state.hero.y, regions[state.regionIndex].tint, 38, 210);
   state.shockwaves.push({ x: state.hero.x, y: state.hero.y, radius: 18, max: 170, life: 0.8, color: regions[state.regionIndex].tint });
-  setTimeout(beginTravel, 520);
+  state.mode = 'clearing';
+  state.clearTimer = 0.52;
+  clearInput();
+  showGameControls(false);
+  updateRouteUI();
 }
 
 function initializeSound() {
@@ -521,7 +486,7 @@ function nearestEnemy(origin = state.hero, maxDistance = Infinity) {
 function attack() {
   if (state.mode !== 'playing' || !state.hero || state.hero.attackCooldown > 0 || state.ultimate) return false;
   const hero = state.hero;
-  const target = nearestEnemy(hero, 340 * gameScale());
+  const target = nearestEnemy(hero, 340);
   let vector = directionVector(hero.direction);
   if (target) {
     const length = distance(hero, target) || 1;
@@ -542,7 +507,7 @@ function attack() {
     y: hero.y - 20 + vector.y * 24,
     vx: vector.x * (heavy ? 470 : 555),
     vy: vector.y * (heavy ? 470 : 555),
-    radius: (heavy ? 15 : 9) * gameScale(),
+    radius: (heavy ? 15 : 9),
     damage: hero.damage * (heavy ? 2.25 : 1),
     life: heavy ? 1.05 : 0.72,
     targetId: target?.id || null,
@@ -555,7 +520,7 @@ function attack() {
   if (heavy) vibrate(18);
   if (state.tutorial === 1) {
     state.tutorial = 2;
-    localStorage.setItem('grape-gripe-journey-tutorial', 'done');
+    writeSaved('grape-gripe-journey-tutorial', 'done');
     updateTutorialUI();
   }
   return true;
@@ -597,11 +562,12 @@ function fireUltimate() {
   if (!state.ultimate || state.ultimate.fired) return;
   state.ultimate.fired = true;
   const hero = state.hero;
-  state.shockwaves.push({ x: hero.x, y: hero.y, radius: 18, max: Math.max(viewport.width, viewport.height) * 0.95, life: 1.05, color: '#d9ff45' });
-  state.shockwaves.push({ x: hero.x, y: hero.y, radius: 10, max: Math.max(viewport.width, viewport.height) * 0.72, life: 0.8, color: '#ff4fa3' });
+  state.shockwaves.push({ x: hero.x, y: hero.y, radius: 18, max: 900, life: 1.05, color: '#d9ff45' });
+  state.shockwaves.push({ x: hero.x, y: hero.y, radius: 10, max: 680, life: 0.8, color: '#ff4fa3' });
   for (const enemy of state.enemies) {
     if (enemy.dead) continue;
     enemy.stunned = 2.4;
+    enemy.telegraph = 0; enemy.attackPending = false; enemy.lungeTime = 0;
     hitEnemy(enemy, 9 + state.upgrades.power * 2.5, true);
   }
   for (const bolt of state.hostileBolts) bolt.dead = true;
@@ -611,57 +577,46 @@ function fireUltimate() {
   state.flash = 0.6;
 }
 
-function spawnEnemy(typeName, gateY = state.hero.y - 120) {
+function spawnEnemy(typeName, anchor = asPoint(currentTerrainData().encounters[state.encounterIndex])) {
   const spec = enemyTypes[typeName];
   const regionScale = 1 + state.regionIndex * 0.14;
-  const scale = gameScale();
-  const y = clamp(gateY + (Math.random() - 0.48) * 150 * scale, 75, state.world.height - 75);
-  const path = pathAt(y);
-  let x = path.x + (Math.random() - 0.5) * path.width * 1.45;
-  if (Math.hypot(x - state.hero.x, y - state.hero.y) < 110 * scale) x += (Math.random() > 0.5 ? 1 : -1) * 130 * scale;
+  const footRadius = { sourling: 10, moth: 12, brute: 21, boss: 28 }[typeName];
+  let position = null;
+  for (let attempt = 0; attempt < 12; attempt++) {
+    const candidate = state.terrain.project({ x: anchor.x + (Math.random() - 0.5) * 190, y: anchor.y + (Math.random() - 0.25) * 95 }, footRadius);
+    if (!candidate || distance(candidate, state.hero) < 58) continue;
+    if (state.terrain.findPath(candidate, state.hero, footRadius).length) { position = candidate; break; }
+  }
+  // Authored anchors are safe; a finite fallback prevents invisible stuck waves.
+  position ||= state.terrain.project(anchor, footRadius);
+  if (!position || !state.terrain.findPath(position, state.hero, footRadius).length) return false;
   const enemy = {
-    id: nextId++,
-    type: typeName,
-    x,
-    y,
-    vx: 0,
-    vy: 0,
-    hp: Math.ceil(spec.hp * regionScale),
-    maxHp: Math.ceil(spec.hp * regionScale),
-    speed: spec.speed * scale,
-    damage: spec.damage * (1 + state.regionIndex * 0.08),
-    radius: spec.radius * scale,
-    height: spec.height * scale,
-    score: spec.score,
-    straw: spec.straw,
-    behavior: spec.behavior,
-    image: spec.image,
-    facing: Math.random() > 0.5 ? 1 : -1,
-    age: 0,
-    spawn: 0,
+    id: nextId++, type: typeName, ...position, vx: 0, vy: 0,
+    hp: Math.ceil(spec.hp * regionScale), maxHp: Math.ceil(spec.hp * regionScale),
+    speed: spec.speed, damage: spec.damage * (1 + state.regionIndex * 0.08),
+    radius: spec.radius, footRadius, height: spec.height, score: spec.score,
+    straw: spec.straw, behavior: spec.behavior, image: spec.image,
+    facing: Math.random() > 0.5 ? 1 : -1, age: 0, spawn: 0,
     attackCooldown: 0.65 + Math.random() * 0.8,
-    telegraph: 0,
-    attackPending: false,
-    lungeTime: 0,
-    lungeX: 0,
-    lungeY: 0,
-    touchCooldown: 0,
-    hitFlash: 0,
-    stunned: 0,
-    summoned: false,
-    dead: false,
+    telegraph: 0, attackPending: false, lungeTime: 0, lungeX: 0, lungeY: 0,
+    touchCooldown: 0, hitFlash: 0, stunned: 0, summoned: false, dead: false,
+    route: [], navTimer: 0, navRevision: -1,
   };
-  keepOnPath(enemy, 0.94);
   state.enemies.push(enemy);
   burstParticles(enemy.x, enemy.y, typeName === 'boss' ? '#ffae45' : '#a55be2', typeName === 'boss' ? 30 : 11, 115);
   state.shockwaves.push({ x: enemy.x, y: enemy.y, radius: 10, max: enemy.radius * 2.3, life: 0.58, color: typeName === 'boss' ? '#ffae45' : '#bd82ed' });
+  return true;
 }
 
 function triggerEncounter(encounter) {
-  const y = encounter.p * state.world.height;
-  state.gate = { y, clearTimer: 0, pulse: 1, active: true };
-  state.spawnQueue = encounter.types.map((type, index) => ({ type, delay: index * 0.38, y }));
-  state.shockwaves.push({ x: pathAt(y).x, y, radius: 12, max: pathAt(y).width, life: 0.75, color: '#ff4c70' });
+  const anchor = asPoint(currentTerrainData().encounters[state.encounterIndex]);
+  const y = anchor.y - 96;
+  const segments = state.terrain.spansAt(y).map(([left, right]) => ({ a: { x: left, y }, b: { x: right, y }, radius: 4 }));
+  state.terrain.setGates(segments);
+  state.gate = { y, segments, clearTimer: 0, active: true };
+  input.tapTarget = null; input.route = [];
+  state.spawnQueue = encounter.types.map((type, index) => ({ type, delay: index * 0.38, anchor, retries: 0 }));
+  state.shockwaves.push({ ...anchor, radius: 12, max: 95, life: 0.75, color: '#ff4c70' });
   announce('A thorn gate closes. Clear the path.');
 }
 
@@ -682,14 +637,14 @@ function executeEnemyAttack(enemy) {
   const hero = state.hero;
   const angle = Math.atan2(hero.y - enemy.y, hero.x - enemy.x);
   if (enemy.behavior === 'ranged') {
-    spawnHostileBolt(enemy, angle, 170 * gameScale());
+    spawnHostileBolt(enemy, angle, 170);
     enemy.attackCooldown = 1.65 + Math.random() * 0.45;
   } else if (enemy.behavior === 'boss') {
-    for (let i = -2; i <= 2; i += 1) spawnHostileBolt(enemy, angle + i * 0.22, 142 * gameScale());
+    for (let i = -2; i <= 2; i += 1) spawnHostileBolt(enemy, angle + i * 0.22, 142);
     if (enemy.hp < enemy.maxHp * 0.48 && !enemy.summoned) {
       enemy.summoned = true;
-      spawnEnemy('sourling', enemy.y + 70);
-      spawnEnemy('moth', enemy.y + 90);
+      spawnEnemy('sourling', { x: enemy.x - 45, y: enemy.y + 70 });
+      spawnEnemy('moth', { x: enemy.x + 45, y: enemy.y + 90 });
     }
     enemy.attackCooldown = 2.05;
   } else {
@@ -717,7 +672,7 @@ function hitEnemy(enemy, damage, ultimate = false) {
 }
 
 function explodeBolt(bolt, directTarget) {
-  const radius = 78 * gameScale();
+  const radius = 78;
   for (const enemy of state.enemies) {
     if (enemy.dead || enemy === directTarget) continue;
     if (Math.hypot(enemy.x - bolt.x, enemy.y - bolt.y) < radius) hitEnemy(enemy, bolt.damage * 0.58);
@@ -766,50 +721,53 @@ function damageHero(amount) {
 
 function updateMovement(dt) {
   const hero = state.hero;
-  let x = input.joyX;
-  let y = input.joyY;
+  let x = input.joyX, y = input.joyY;
   if (input.keys.has('arrowleft') || input.keys.has('a')) x -= 1;
   if (input.keys.has('arrowright') || input.keys.has('d')) x += 1;
   if (input.keys.has('arrowup') || input.keys.has('w')) y -= 1;
   if (input.keys.has('arrowdown') || input.keys.has('s')) y += 1;
-
-  if (Math.hypot(x, y) < 0.1 && input.tapTarget) {
-    const dx = input.tapTarget.x - hero.x;
-    const dy = input.tapTarget.y - hero.y;
-    if (Math.hypot(dx, dy) < 12) input.tapTarget = null;
-    else {
-      const length = Math.hypot(dx, dy);
-      x = dx / length;
-      y = dy / length;
-    }
-  } else if (Math.hypot(x, y) >= 0.1) input.tapTarget = null;
-
+  if (Math.hypot(x, y) >= 0.1) { input.tapTarget = null; input.route = []; }
+  else if (input.route.length) {
+    while (input.route.length && distance(hero, input.route[0]) < 10) input.route.shift();
+    if (input.route.length) {
+      const waypoint = input.route[0], length = distance(hero, waypoint) || 1;
+      x = (waypoint.x - hero.x) / length; y = (waypoint.y - hero.y) / length;
+    } else input.tapTarget = null;
+  }
   const length = Math.hypot(x, y);
   if (length > 1) { x /= length; y /= length; }
-  if (length > 0.12) {
-    setDirection(hero, x, y);
-    hero.walkCycle += dt * 10;
-    if (state.tutorial === 0) { state.tutorial = 1; updateTutorialUI(); }
-  }
-
-  if (hero.dashTime > 0) {
-    hero.dashTime -= dt;
+  if (length > 0.12) setDirection(hero, x, y);
+  const dashing = hero.dashTime > 0;
+  if (dashing) {
+    hero.dashTime = Math.max(0, hero.dashTime - dt);
     hero.vx = hero.dashX * hero.speed * 3.45;
     hero.vy = hero.dashY * hero.speed * 3.45;
-    hero.trail.unshift({ x: hero.x, y: hero.y, direction: hero.direction, life: 0.28 });
+    hero.trail.unshift({ x: hero.x, y: hero.y, direction: hero.direction, life: 0.28, pose: sampleAnimation(hero.animator, hero.direction) });
     if (hero.trail.length > 5) hero.trail.pop();
   } else {
     const easing = 1 - Math.exp(-dt * 12);
     hero.vx += (x * hero.speed - hero.vx) * easing;
     hero.vy += (y * hero.speed - hero.vy) * easing;
   }
-
-  hero.x += hero.vx * dt;
-  hero.y += hero.vy * dt;
-  if (state.gate?.active) hero.y = Math.max(hero.y, state.gate.y - 72 * gameScale());
-  keepOnPath(hero, 0.9);
+  const movement = moveActor(hero, hero.vx * dt, hero.vy * dt);
+  advanceAnimator(hero.animator, { distance: movement.moved, dt, dashing, attacking: hero.attackAnim > 0, hurt: hero.shieldPulse > 0, ultimate: Boolean(state.ultimate) });
+  hero.walkCycle = hero.animator.phase * Math.PI * 2;
+  if (movement.moved > 0.2 && state.tutorial === 0) { state.tutorial = 1; updateTutorialUI(); }
   for (const trail of hero.trail) trail.life -= dt;
   hero.trail = hero.trail.filter((trail) => trail.life > 0);
+}
+
+function enemySteering(enemy, dt) {
+  enemy.navTimer -= dt;
+  const hero = state.hero;
+  if (state.terrain.segmentClear(enemy, hero, enemy.footRadius)) return hero;
+  if (enemy.navTimer <= 0 || enemy.navRevision !== state.terrain.revision) {
+    enemy.route = state.terrain.findPath(enemy, hero, enemy.footRadius);
+    enemy.navTimer = 0.55 + (enemy.id % 5) * 0.08;
+    enemy.navRevision = state.terrain.revision;
+  }
+  while (enemy.route.length && distance(enemy, enemy.route[0]) < 10) enemy.route.shift();
+  return enemy.route[0] || enemy;
 }
 
 function updateEnemies(dt) {
@@ -823,45 +781,46 @@ function updateEnemies(dt) {
     enemy.hitFlash = Math.max(0, enemy.hitFlash - dt);
     enemy.stunned = Math.max(0, enemy.stunned - dt);
 
-    if (enemy.telegraph > 0) {
+    if (enemy.stunned > 0 || enemy.spawn < 0.72) {
+      enemy.vx *= Math.exp(-dt * 7); enemy.vy *= Math.exp(-dt * 7);
+    } else if (enemy.telegraph > 0) {
       enemy.telegraph -= dt;
       enemy.vx *= Math.exp(-dt * 10);
       enemy.vy *= Math.exp(-dt * 10);
       if (enemy.telegraph <= 0 && enemy.attackPending) executeEnemyAttack(enemy);
-    } else if (enemy.spawn < 0.72 || enemy.stunned > 0) {
-      enemy.vx *= Math.exp(-dt * 7);
-      enemy.vy *= Math.exp(-dt * 7);
     } else if (enemy.lungeTime > 0) {
       enemy.lungeTime -= dt;
       const multiplier = enemy.behavior === 'brute' ? 5.2 : 4.2;
       enemy.vx = enemy.lungeX * enemy.speed * multiplier;
       enemy.vy = enemy.lungeY * enemy.speed * multiplier;
     } else {
-      const dx = hero.x - enemy.x;
-      const dy = hero.y - enemy.y;
+      const waypoint = enemySteering(enemy, dt);
+      const dx = waypoint.x - enemy.x;
+      const dy = waypoint.y - enemy.y;
       const d = Math.hypot(dx, dy) || 1;
       const nx = dx / d;
       const ny = dy / d;
-      let desired = enemy.speed;
-      if (enemy.behavior === 'ranged') desired = d > 190 * gameScale() ? enemy.speed : d < 135 * gameScale() ? -enemy.speed * 0.7 : 0;
-      if (enemy.behavior === 'boss') desired = d > 175 * gameScale() ? enemy.speed : 0;
+      const sight = state.terrain.segmentClear(enemy, hero, 0);
+      const heroDistance = distance(enemy, hero);
+      let desired = waypoint === enemy ? 0 : enemy.speed;
+      if (sight && enemy.behavior === 'ranged') desired = heroDistance > 190 ? enemy.speed : heroDistance < 135 ? -enemy.speed * 0.7 : 0;
+      if (sight && enemy.behavior === 'boss') desired = heroDistance > 175 ? enemy.speed : 0;
       const easing = 1 - Math.exp(-dt * 4.2);
       enemy.vx += (nx * desired - enemy.vx) * easing;
       enemy.vy += (ny * desired - enemy.vy) * easing;
 
       const attackDistance = enemy.behavior === 'ranged' ? 330 : enemy.behavior === 'boss' ? 390 : enemy.behavior === 'brute' ? 155 : 110;
-      if (enemy.attackCooldown <= 0 && d < attackDistance * gameScale()) {
+      if (enemy.attackCooldown <= 0 && distance(enemy, hero) < attackDistance && sight) {
         enemy.attackPending = true;
         enemy.telegraph = enemy.behavior === 'boss' ? 0.78 : enemy.behavior === 'brute' ? 0.65 : enemy.behavior === 'ranged' ? 0.48 : 0.4;
       }
     }
 
-    enemy.x += enemy.vx * dt;
-    enemy.y += enemy.vy * dt;
-    keepOnPath(enemy, 0.98);
+    moveActor(enemy, enemy.vx * dt, enemy.vy * dt);
     if (Math.abs(enemy.vx) > 2) enemy.facing = enemy.vx > 0 ? -1 : 1;
-    if (distance(enemy, hero) < enemy.radius + 22 * gameScale() && enemy.touchCooldown <= 0) {
+    if (distance(enemy, hero) < enemy.radius + 22 && enemy.touchCooldown <= 0 && enemy.spawn >= 0.72 && enemy.stunned <= 0) {
       damageHero(enemy.damage);
+      if (state.mode !== 'playing') return;
       enemy.touchCooldown = 0.9;
       const angle = Math.atan2(hero.y - enemy.y, hero.x - enemy.x);
       hero.vx += Math.cos(angle) * 175;
@@ -901,7 +860,7 @@ function updateBolts(dt) {
     bolt.life -= dt;
     bolt.x += bolt.vx * dt;
     bolt.y += bolt.vy * dt;
-    if (!bolt.dead && distance(bolt, state.hero) < bolt.radius + 21 * gameScale()) {
+    if (!bolt.dead && distance(bolt, state.hero) < bolt.radius + 21) {
       damageHero(bolt.damage);
       bolt.dead = true;
     }
@@ -917,14 +876,14 @@ function updatePickups(dt) {
     pickup.vx *= Math.exp(-dt * 2.8);
     pickup.vy *= Math.exp(-dt * 2.8);
     const d = distance(pickup, state.hero);
-    if (d < 175 * gameScale()) {
+    if (d < 175) {
       const pull = 1 - Math.exp(-dt * (d < 70 ? 14 : 5));
       pickup.vx += ((state.hero.x - pickup.x) * 6 - pickup.vx) * pull;
       pickup.vy += ((state.hero.y - 16 - pickup.y) * 6 - pickup.vy) * pull;
     }
-    pickup.x += pickup.vx * dt;
-    pickup.y += pickup.vy * dt;
-    if (d < 28 * gameScale()) {
+    const origin = state.terrain.project(pickup, 4);
+    if (origin) Object.assign(pickup, state.terrain.move(origin, pickup.vx * dt, pickup.vy * dt, 4));
+    if (d < 28) {
       pickup.life = 0;
       state.energy += 1;
       state.score += 4;
@@ -934,7 +893,7 @@ function updatePickups(dt) {
   }
   state.pickups = state.pickups.filter((pickup) => pickup.life > 0);
 
-  if (state.secret && !state.secret.collected && distance(state.secret, state.hero) < 42 * gameScale()) {
+  if (state.secret && !state.secret.collected && distance(state.secret, state.hero) < 42) {
     state.secret.collected = true;
     state.energy += 10;
     state.score += 120;
@@ -986,29 +945,30 @@ function updateEffects(dt) {
 }
 
 function updateEncounter(dt) {
-  const nextEncounter = regions[state.regionIndex].encounters[state.encounterIndex];
-  if (!state.gate && nextEncounter && state.hero.y / state.world.height <= nextEncounter.p + 0.045) triggerEncounter(nextEncounter);
-
+  const encounters = regions[state.regionIndex].encounters;
+  const nextEncounter = encounters[state.encounterIndex];
+  const anchor = currentTerrainData().encounters[state.encounterIndex];
+  if (!state.gate && nextEncounter && state.hero.y <= anchor[1] + 100) triggerEncounter(nextEncounter);
   for (const spawn of state.spawnQueue) spawn.delay -= dt;
   const ready = state.spawnQueue.filter((spawn) => spawn.delay <= 0);
   state.spawnQueue = state.spawnQueue.filter((spawn) => spawn.delay > 0);
-  for (const spawn of ready) spawnEnemy(spawn.type, spawn.y);
-
+  for (const spawn of ready) {
+    if (!spawnEnemy(spawn.type, spawn.anchor) && spawn.retries < 3) state.spawnQueue.push({ ...spawn, delay: 0.5, retries: spawn.retries + 1 });
+  }
   if (state.gate?.active && state.spawnQueue.length === 0 && state.enemies.length === 0) {
     state.gate.clearTimer += dt;
     if (state.gate.clearTimer > 0.55) {
-      state.gate.active = false;
-      state.encounterIndex += 1;
+      state.encounterIndex++;
       state.lastStraw = clamp(state.lastStraw + 10, 0, state.maxStraw);
-      state.energy += 3;
-      state.score += 30;
+      state.energy += 3; state.score += 30;
       sound('clear');
-      state.shockwaves.push({ x: pathAt(state.gate.y).x, y: state.gate.y, radius: 8, max: pathAt(state.gate.y).width * 1.4, life: 0.75, color: '#d9ff45' });
+      for (const segment of state.gate.segments) state.shockwaves.push({ x: (segment.a.x + segment.b.x) / 2, y: state.gate.y, radius: 8, max: 110, life: 0.75, color: '#d9ff45' });
       state.gate = null;
+      state.terrain.setGates();
+      updateRouteUI();
     }
   }
-
-  if (!state.gate && !nextEncounter && state.encounterIndex >= regions[state.regionIndex].encounters.length && state.hero.y < state.world.height * 0.085) completeRegion();
+  if (!state.gate && state.encounterIndex >= encounters.length && distance(state.hero, asPoint(currentTerrainData().exit)) < 44) completeRegion();
 }
 
 function updateUltimate(dt) {
@@ -1020,14 +980,22 @@ function updateUltimate(dt) {
 
 function updateCamera(amount = 0.12) {
   if (!state.hero) return;
-  const targetX = clamp(state.hero.x - viewport.width * 0.5, 0, Math.max(0, state.world.width - viewport.width));
-  const targetY = clamp(state.hero.y - viewport.height * 0.61, 0, Math.max(0, state.world.height - viewport.height));
+  const width = viewport.width / viewZoom(), height = viewport.height / viewZoom();
+  const targetX = clamp(state.hero.x - width * 0.5, 0, Math.max(0, state.world.width - width));
+  const targetY = clamp(state.hero.y - height * 0.61, 0, Math.max(0, state.world.height - height));
   state.camera.x = lerp(state.camera.x, targetX, amount);
   state.camera.y = lerp(state.camera.y, targetY, amount);
 }
 
 function update(dt) {
+  if (!['playing', 'clearing', 'travel', 'start'].includes(state.mode)) return;
   state.time += dt;
+  if (state.mode === 'clearing') {
+    state.clearTimer -= dt;
+    updateEffects(dt);
+    if (state.clearTimer <= 0) beginTravel();
+    return;
+  }
   if (state.mode === 'travel') {
     state.travelTimer -= dt;
     updateEffects(dt);
@@ -1047,13 +1015,15 @@ function update(dt) {
 
   updateMovement(dt);
   updateEnemies(dt);
+  if (state.mode !== 'playing') return;
   updateBolts(dt);
+  if (state.mode !== 'playing') return;
   updatePickups(dt);
   updateEncounter(dt);
   updateUltimate(dt);
   updateEffects(dt);
   updateCamera(1 - Math.exp(-dt * 7));
-  if (input.attackHeld) attack();
+  if (input.attackHeld || input.keys.has(' ')) attack();
   updateUI();
 }
 
@@ -1082,6 +1052,9 @@ function chooseUpgrade(type) {
 }
 
 function finishGame(won) {
+  clearInput();
+  state.clearTimer = 0;
+  hideOverlays();
   state.mode = won ? 'won' : 'lost';
   showGameControls(false);
   endScreen.hidden = false;
@@ -1089,14 +1062,15 @@ function finishGame(won) {
   finalScore.textContent = Math.round(state.score).toLocaleString();
   if (won) {
     sound('win');
-    localStorage.setItem('grape-gripe-best-score', String(Math.max(Number(localStorage.getItem('grape-gripe-best-score') || 0), state.score)));
+    writeSaved('grape-gripe-best-score', String(Math.max(Number(readSaved('grape-gripe-best-score') || 0), state.score)));
     announce('The Sourwood is uncorked. Journey complete.');
   } else announce('The Gripevine got the last word.');
 }
 
 function pauseGame() {
-  if (state.mode !== 'playing') return;
-  state.returnMode = 'playing';
+  if (!['playing', 'clearing', 'travel'].includes(state.mode)) return;
+  clearInput();
+  state.returnMode = state.mode;
   state.mode = 'paused';
   pauseScreen.hidden = false;
   showGameControls(false);
@@ -1106,14 +1080,17 @@ function pauseGame() {
 
 function resumeGame() {
   if (state.mode !== 'paused') return;
+  clearInput();
   state.mode = state.returnMode;
   pauseScreen.hidden = true;
-  showGameControls(true);
+  showGameControls(state.mode === 'playing');
+  accumulator = 0;
   lastFrame = performance.now();
 }
 
 function openMap() {
   if (state.mode !== 'playing') return;
+  clearInput();
   state.returnMode = 'playing';
   state.mode = 'map';
   mapScreen.hidden = false;
@@ -1124,8 +1101,10 @@ function openMap() {
 
 function closeMap() {
   if (state.mode !== 'map') return;
+  clearInput();
   state.mode = state.returnMode;
   mapScreen.hidden = true;
+  accumulator = 0;
   showGameControls(true);
   lastFrame = performance.now();
 }
@@ -1173,7 +1152,6 @@ function updateUI() {
   companionButton.disabled = !ready;
   companionButton.classList.toggle('is-ready', ready);
   companionButton.style.setProperty('--charge', String(state.lastStraw / state.maxStraw));
-  updateRouteUI();
 }
 
 function drawImageBottom(image, x, y, height, flip = 1, alpha = 1, rotation = 0, filter = 'none') {
@@ -1219,12 +1197,11 @@ function drawBackground() {
 }
 
 function drawExit() {
-  const y = state.world.height * 0.052;
-  const path = pathAt(y);
+  const { x, y } = asPoint(currentTerrainData().exit);
   const cleared = state.encounterIndex >= regions[state.regionIndex].encounters.length && !state.gate;
   const pulse = 0.5 + Math.sin(state.time * 4) * 0.15;
   ctx.save();
-  ctx.translate(path.x, y);
+  ctx.translate(x, y);
   ctx.strokeStyle = cleared ? `rgba(217,255,69,${pulse + 0.25})` : 'rgba(160,108,192,.3)';
   ctx.lineWidth = 4;
   ctx.shadowBlur = cleared ? 28 : 8;
@@ -1239,26 +1216,19 @@ function drawExit() {
 
 function drawGate() {
   if (!state.gate?.active) return;
-  const path = pathAt(state.gate.y);
   const pulse = 0.72 + Math.sin(state.time * 7) * 0.18;
   ctx.save();
-  ctx.translate(path.x, state.gate.y - 34 * gameScale());
   ctx.strokeStyle = `rgba(255,76,112,${pulse})`;
-  ctx.lineWidth = 5;
-  ctx.shadowBlur = 18;
-  ctx.shadowColor = '#ff4c70';
-  ctx.beginPath();
-  const width = path.width * 1.05;
-  const pieces = 9;
-  for (let i = 0; i <= pieces; i += 1) {
-    const x = -width + i * (width * 2 / pieces);
-    const y = Math.sin(i * 2.4 + state.time * 2) * 7;
-    if (i === 0) ctx.moveTo(x, y);
-    else ctx.lineTo(x, y);
-    ctx.lineTo(x - 6, y - 12);
-    ctx.moveTo(x, y);
+  ctx.lineWidth = 6; ctx.shadowBlur = 18; ctx.shadowColor = '#ff4c70';
+  for (const { a, b } of state.gate.segments) {
+    const pieces = Math.max(2, Math.ceil((b.x - a.x) / 23));
+    ctx.beginPath(); ctx.moveTo(a.x, a.y);
+    for (let i = 1; i <= pieces; i++) {
+      const x = lerp(a.x, b.x, i / pieces), y = a.y + Math.sin(i * 2.4 + state.time * 2) * 4;
+      ctx.lineTo(x, y); ctx.lineTo(x - 6, y - 12); ctx.moveTo(x, y);
+    }
+    ctx.stroke();
   }
-  ctx.stroke();
   ctx.restore();
 }
 
@@ -1373,37 +1343,43 @@ function drawEnemy(enemy) {
   }
 }
 
-function heroRenderInfo(direction) {
-  if (direction === 0) return { image: images.heroSide, flip: -1, rotation: 0 };
-  if (direction === 4) return { image: images.heroSide, flip: 1, rotation: 0 };
-  if (direction === 1) return { image: images.heroSide, flip: -1, rotation: 0.07 };
-  if (direction === 3) return { image: images.heroSide, flip: 1, rotation: -0.07 };
-  if (direction === 5) return { image: images.heroBack, flip: 1, rotation: -0.055 };
-  if (direction === 7) return { image: images.heroBack, flip: -1, rotation: 0.055 };
-  if (direction === 6) return { image: images.heroBack, flip: 1, rotation: 0 };
-  return { image: images.heroFront, flip: 1, rotation: 0 };
-}
-
-function drawHeroAt(x, y, direction, alpha = 1, ghost = false) {
+function drawHeroAt(x, y, direction, alpha = 1, ghost = false, frozenPose = null) {
   const hero = state.hero;
-  const info = heroRenderInfo(direction);
-  const speed = Math.hypot(hero.vx, hero.vy);
-  const moving = speed > 14;
-  const bob = moving && !ghost ? Math.sin(hero.walkCycle) * 3.2 : 0;
+  const pose = frozenPose || sampleAnimation(hero.animator, direction);
+  const size = heroAtlas.worldSize;
+  const scale = size / heroAtlas.cell;
   const attackProgress = hero.attackAnim > 0 ? hero.attackAnim / 0.34 : 0;
   const attackLean = ghost ? 0 : Math.sin(attackProgress * Math.PI) * 0.09;
-  const baseHeight = (info.image === images.heroSide ? 116 : info.image === images.heroBack ? 112 : 105) * gameScale();
-  const height = baseHeight * (1 + (ghost ? 0 : Math.sin(hero.walkCycle * 2) * 0.018));
-  const filter = ghost ? 'saturate(1.3) hue-rotate(15deg)' : hero.invulnerable > 0 && Math.floor(hero.invulnerable * 18) % 2 ? 'brightness(1.75) saturate(.6)' : 'none';
-  drawShadow(x, y + 5, 68 * gameScale(), ghost ? 0.1 : 0.42);
-  drawImageBottom(info.image, x, y + bob, height, info.flip, alpha, info.rotation + attackLean * info.flip, filter);
+  const lean = pose.state === 'dash' ? 0.12 : attackLean;
+  drawShadow(x, y + 4, 62, ghost ? 0.1 : 0.4);
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(pose.flip, 1);
+  ctx.rotate(lean);
+  ctx.globalAlpha = alpha;
+  ctx.filter = ghost ? 'saturate(1.3) hue-rotate(15deg)' : hero.invulnerable > 0 && Math.floor(hero.invulnerable * 18) % 2 ? 'brightness(1.75) saturate(.6)' : 'none';
+  ctx.drawImage(images.heroWalk, pose.column * heroAtlas.cell, pose.row * heroAtlas.cell,
+    heroAtlas.cell, heroAtlas.cell, -heroAtlas.anchor.x * scale, -heroAtlas.anchor.y * scale, size, size);
+  ctx.restore();
+}
+
+function drawCompanion() {
+  const hero = state.hero;
+  const hover = prefersReducedMotion ? 0 : Math.sin(state.time * 3.2) * 3;
+  const x = hero.x + 43;
+  const y = hero.y - 76 + hover;
+  ctx.save();
+  // Existing companion art has its own crop and transform, independent of gait.
+  // Replace this crop with a dedicated companion atlas in Sol's animation pass.
+  ctx.drawImage(images.heroFront, 427, 0, 179, 233, x - 17, y - 22, 34, 44);
+  ctx.restore();
 }
 
 function drawHero() {
   const hero = state.hero;
   for (let i = hero.trail.length - 1; i >= 0; i -= 1) {
     const trail = hero.trail[i];
-    drawHeroAt(trail.x, trail.y, trail.direction, trail.life * 0.46, true);
+    drawHeroAt(trail.x, trail.y, trail.direction, trail.life * 0.46, true, trail.pose);
   }
   if (hero.shieldPulse > 0) {
     ctx.strokeStyle = `rgba(142,232,255,${hero.shieldPulse})`;
@@ -1411,10 +1387,11 @@ function drawHero() {
     ctx.shadowBlur = 20;
     ctx.shadowColor = '#8ee8ff';
     ctx.beginPath();
-    ctx.ellipse(hero.x, hero.y - 34, 52 * gameScale(), 67 * gameScale(), 0, 0, Math.PI * 2);
+    ctx.ellipse(hero.x, hero.y - 34, 52, 67, 0, 0, Math.PI * 2);
     ctx.stroke();
   }
   drawHeroAt(hero.x, hero.y, hero.direction);
+  drawCompanion();
 }
 
 function drawParticles() {
@@ -1446,34 +1423,40 @@ function drawParticles() {
 
 function drawGuidance() {
   if (state.mode !== 'playing') return;
-  let target;
-  if (state.gate?.active && state.enemies.length) target = nearestEnemy(state.hero);
-  else {
-    const y = state.world.height * 0.052;
-    target = { x: pathAt(y).x, y };
+  const destination = state.gate?.active ? nearestEnemy(state.hero)
+    : asPoint(currentTerrainData().encounters[state.encounterIndex] || currentTerrainData().exit);
+  if (!destination) return;
+  const guide = state.guidance;
+  if (state.time >= guide.timer || guide.revision !== state.terrain.revision) {
+    guide.route = state.terrain.findPath(state.hero, destination, state.hero.footRadius);
+    guide.timer = state.time + 0.5; guide.revision = state.terrain.revision;
   }
-  if (!target) return;
-  const sx = target.x - state.camera.x;
-  const sy = target.y - state.camera.y;
-  const margin = 72;
-  if (sx > margin && sx < viewport.width - margin && sy > margin && sy < viewport.height - margin) return;
-  const heroScreen = { x: state.hero.x - state.camera.x, y: state.hero.y - state.camera.y };
+  while (guide.route.length > 1 && distance(state.hero, guide.route[0]) < 40) guide.route.shift();
+  const target = guide.route[0] || destination;
+  const sx = (target.x - state.camera.x) * viewZoom(), sy = (target.y - state.camera.y) * viewZoom();
+  if (distance(target, state.hero) < 65) return;
+  const heroScreen = { x: (state.hero.x - state.camera.x) * viewZoom(), y: (state.hero.y - state.camera.y) * viewZoom() };
   const angle = Math.atan2(sy - heroScreen.y, sx - heroScreen.x);
-  const x = clamp(sx, margin, viewport.width - margin);
-  const y = clamp(sy, 105, viewport.height - 210);
   ctx.save();
-  ctx.translate(x, y);
+  ctx.translate(clamp(sx, 72, viewport.width - 72), clamp(sy, 112, viewport.height - 220));
   ctx.rotate(angle);
   ctx.fillStyle = state.gate?.active ? '#ff4c70' : '#d9ff45';
-  ctx.shadowBlur = 18;
-  ctx.shadowColor = ctx.fillStyle;
-  ctx.beginPath();
-  ctx.moveTo(18, 0);
-  ctx.lineTo(-10, -12);
-  ctx.lineTo(-4, 0);
-  ctx.lineTo(-10, 12);
-  ctx.closePath();
-  ctx.fill();
+  ctx.shadowBlur = 18; ctx.shadowColor = ctx.fillStyle;
+  ctx.beginPath(); ctx.moveTo(15, 0); ctx.lineTo(-8, -10); ctx.lineTo(-3, 0); ctx.lineTo(-8, 10); ctx.closePath(); ctx.fill();
+  ctx.restore();
+}
+
+function drawTerrainDebug() {
+  if (!terrainDebug) return;
+  ctx.save(); ctx.lineWidth = 2;
+  for (const [index, ring] of [state.terrain.outer, ...state.terrain.holes].entries()) {
+    ctx.strokeStyle = index ? '#ff4c70' : '#d9ff45';
+    ctx.beginPath(); ring.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+    ctx.closePath(); ctx.stroke();
+  }
+  for (const actor of [state.hero, ...state.enemies]) {
+    ctx.strokeStyle = '#ffffff'; ctx.beginPath(); ctx.arc(actor.x, actor.y, actor.footRadius, 0, Math.PI * 2); ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -1508,8 +1491,8 @@ function drawUltimateOverlay() {
     const darkness = clamp(t / 0.42, 0, 1) * 0.55;
     ctx.fillStyle = `rgba(12,1,24,${darkness})`;
     ctx.fillRect(0, 0, viewport.width, viewport.height);
-    const hx = state.hero.x - state.camera.x;
-    const hy = state.hero.y - state.camera.y - 35;
+    const hx = (state.hero.x - state.camera.x) * viewZoom();
+    const hy = (state.hero.y - state.camera.y - 35) * viewZoom();
     ctx.strokeStyle = '#d9ff45';
     ctx.lineWidth = 5;
     ctx.shadowBlur = 35;
@@ -1596,12 +1579,14 @@ function draw() {
   ctx.clearRect(0, 0, viewport.width, viewport.height);
   ctx.fillStyle = '#090611';
   ctx.fillRect(0, 0, viewport.width, viewport.height);
-  if (!images[regions[state.regionIndex]?.key]) return;
+  if (!assetsReady || !state.hero || !state.terrain) return;
 
   const shakeX = prefersReducedMotion ? 0 : (Math.random() - 0.5) * state.shake;
   const shakeY = prefersReducedMotion ? 0 : (Math.random() - 0.5) * state.shake;
   ctx.save();
-  ctx.translate(-state.camera.x + shakeX, -state.camera.y + shakeY);
+  ctx.translate(shakeX, shakeY);
+  ctx.scale(viewZoom(), viewZoom());
+  ctx.translate(-state.camera.x, -state.camera.y);
   drawBackground();
   drawExit();
   drawGate();
@@ -1616,6 +1601,7 @@ function draw() {
     else drawEnemy(actor.entity);
   }
   drawParticles();
+  drawTerrainDebug();
   ctx.restore();
 
   drawGuidance();
@@ -1629,9 +1615,13 @@ function draw() {
 }
 
 function frame(now) {
-  const dt = Math.min(0.034, Math.max(0, (now - lastFrame) / 1000));
+  const elapsed = Math.min(0.12, Math.max(0, (now - lastFrame) / 1000));
   lastFrame = now;
-  if (state.mode !== 'loading' && state.mode !== 'paused' && state.mode !== 'map' && state.mode !== 'upgrade' && state.mode !== 'won' && state.mode !== 'lost') update(dt);
+  if (['playing', 'clearing', 'travel', 'start'].includes(state.mode)) {
+    accumulator += elapsed;
+    let steps = 0;
+    while (accumulator >= 1 / 60 && steps++ < 7) { update(1 / 60); accumulator -= 1 / 60; }
+  } else accumulator = 0;
   draw();
   requestAnimationFrame(frame);
 }
@@ -1666,15 +1656,23 @@ function releaseAttack() {
   attackButton.classList.remove('is-held');
 }
 
+function clearInput() {
+  input.keys.clear(); input.joystickId = null; input.joyX = 0; input.joyY = 0;
+  input.route = []; input.tapTarget = null; input.attackHeld = false;
+  joystickKnob.style.transform = '';
+  joystickBase.style.left = ''; joystickBase.style.top = ''; joystickBase.style.bottom = '';
+  joystickZone.classList.remove('is-active'); attackButton.classList.remove('is-held');
+}
+
 joystickZone.addEventListener('pointerdown', (event) => {
   if (state.mode !== 'playing' || input.joystickId !== null) return;
   event.preventDefault();
   input.joystickId = event.pointerId;
   input.joyOriginX = event.clientX;
   input.joyOriginY = event.clientY;
-  const shellRect = shell.getBoundingClientRect();
-  joystickBase.style.left = `${clamp(event.clientX - shellRect.left - 63, 8, shellRect.width * 0.54 - 132)}px`;
-  joystickBase.style.top = `${clamp(event.clientY - shellRect.top - 63, shellRect.height - Math.min(shellRect.height * 0.38, 320), shellRect.height - 134)}px`;
+  const zoneRect = joystickZone.getBoundingClientRect();
+  joystickBase.style.left = `${clamp(event.clientX - zoneRect.left - 63, 0, zoneRect.width - 126)}px`;
+  joystickBase.style.top = `${clamp(event.clientY - zoneRect.top - 63, 0, zoneRect.height - 126)}px`;
   joystickBase.style.bottom = 'auto';
   joystickZone.classList.add('is-active');
   joystickZone.setPointerCapture(event.pointerId);
@@ -1686,15 +1684,17 @@ joystickZone.addEventListener('pointermove', (event) => {
 });
 joystickZone.addEventListener('pointerup', releaseJoystick);
 joystickZone.addEventListener('pointercancel', releaseJoystick);
+joystickZone.addEventListener('lostpointercapture', releaseJoystick);
 
 canvas.addEventListener('pointerdown', (event) => {
   if (state.mode === 'travel') { state.travelTimer = Math.min(state.travelTimer, 0.35); return; }
   if (state.mode !== 'playing') return;
   const rect = canvas.getBoundingClientRect();
   input.tapTarget = {
-    x: event.clientX - rect.left + state.camera.x,
-    y: event.clientY - rect.top + state.camera.y,
+    x: (event.clientX - rect.left) / viewZoom() + state.camera.x,
+    y: (event.clientY - rect.top) / viewZoom() + state.camera.y,
   };
+  input.route = state.terrain.findPath(state.hero, input.tapTarget, state.hero.footRadius);
 });
 
 attackButton.addEventListener('pointerdown', (event) => {
@@ -1714,10 +1714,12 @@ companionButton.addEventListener('click', unleashGripe);
 document.querySelectorAll('.upgrade-card').forEach((button) => button.addEventListener('click', () => chooseUpgrade(button.dataset.upgrade)));
 
 startButton.addEventListener('click', () => {
+  if (!assetsReady) return;
   initializeSound();
   resetGame();
 });
 restartButton.addEventListener('click', () => {
+  if (!assetsReady) return;
   initializeSound();
   hideOverlays();
   resetGame();
@@ -1739,6 +1741,7 @@ window.addEventListener('keydown', (event) => {
   const key = event.key.toLowerCase();
   input.keys.add(key);
   if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'shift', 'e', 'm'].includes(key)) event.preventDefault();
+  if (event.repeat && ['m', 'escape', 'shift', 'e'].includes(key)) return;
   if (state.mode === 'start' && (key === ' ' || key === 'enter')) { initializeSound(); resetGame(); return; }
   if (key === ' ') { initializeSound(); attack(); }
   if (key === 'shift') dash();
@@ -1752,8 +1755,9 @@ window.addEventListener('keydown', (event) => {
 });
 window.addEventListener('keyup', (event) => input.keys.delete(event.key.toLowerCase()));
 window.addEventListener('resize', resize, { passive: true });
+window.addEventListener('blur', () => { clearInput(); pauseGame(); });
 document.addEventListener('visibilitychange', () => {
-  if (document.hidden && state.mode === 'playing') pauseGame();
+  if (document.hidden) { clearInput(); pauseGame(); }
 });
 
 async function loadImages() {
@@ -1766,28 +1770,33 @@ async function loadImages() {
   })));
 }
 
-resize();
-requestAnimationFrame(frame);
-loadImages()
-  .then(() => {
+async function boot() {
+  state.mode = 'loading';
+  startButton.disabled = true;
+  $('retry-load').hidden = true;
+  $('loading-message').textContent = 'Loading the vineyard…';
+  try {
+    await loadImages();
+    assetsReady = true;
     resetHero();
     state.regionIndex = 0;
-    configureWorld(false);
-    const spawnY = state.world.height * 0.93;
-    state.hero.x = pathAt(spawnY).x;
-    state.hero.y = spawnY;
+    configureWorld();
+    Object.assign(state.hero, asPoint(currentTerrainData().spawn));
     updateCamera(1);
-    loadingScreen.classList.add('is-ready');
-    setTimeout(() => {
-      loadingScreen.hidden = true;
-      startScreen.hidden = false;
-      state.mode = 'start';
-    }, 360);
-  })
-  .catch((error) => {
-    console.error(error);
     loadingScreen.hidden = true;
     startScreen.hidden = false;
+    startButton.disabled = false;
     state.mode = 'start';
-    announce('Some journey art could not load. Reload to try again.');
-  });
+  } catch {
+    // Failed art must never expose a playable but broken world.
+    assetsReady = false;
+    state.mode = 'loading';
+    $('loading-message').textContent = 'The vineyard could not load. Try again.';
+    $('retry-load').hidden = false;
+  }
+}
+
+$('retry-load').addEventListener('click', boot);
+resize();
+requestAnimationFrame(frame);
+boot();
