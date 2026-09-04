@@ -1,1058 +1,1367 @@
-(() => {
-  'use strict';
+const $ = (id) => document.getElementById(id);
 
-  const canvas = document.querySelector('#world');
-  const ctx = canvas.getContext('2d', { alpha: true });
-  const minimap = document.querySelector('#minimap');
-  const mapCtx = minimap.getContext('2d');
+const canvas = $('world');
+const ctx = canvas.getContext('2d', { alpha: false, desynchronized: true });
+const shell = $('game-shell');
+const loadingScreen = $('loading-screen');
+const startScreen = $('start-screen');
+const startButton = $('start-button');
+const hud = $('hud');
+const healthFill = $('health-fill');
+const energyCount = $('energy-count');
+const bossHealth = $('boss-health');
+const bossHealthFill = $('boss-health-fill');
+const soundButton = $('sound-button');
+const pauseButton = $('pause-button');
+const pauseScreen = $('pause-screen');
+const resumeButton = $('resume-button');
+const joystickZone = $('joystick-zone');
+const joystickBase = $('joystick-base');
+const joystickKnob = $('joystick-knob');
+const tutorialFocus = $('tutorial-focus');
+const actionCluster = $('action-cluster');
+const attackButton = $('attack-button');
+const dashButton = $('dash-button');
+const companionButton = $('companion-button');
+const upgradeScreen = $('upgrade-screen');
+const endScreen = $('end-screen');
+const finalScore = $('final-score');
+const restartButton = $('restart-button');
+const liveStatus = $('live-status');
 
-  const ui = {
-    location: document.querySelector('#location-label'),
-    objective: document.querySelector('#objective-label'),
-    route: document.querySelector('#route-label'),
-    mapCaption: document.querySelector('#map-caption'),
-    mapButton: document.querySelector('#map-button'),
-    coachmark: document.querySelector('#coachmark'),
-    joystickZone: document.querySelector('#joystick-zone'),
-    joystickBase: document.querySelector('#joystick-base'),
-    joystickKnob: document.querySelector('#joystick-knob'),
-    actionButton: document.querySelector('#action-button'),
-    actionLabel: document.querySelector('#action-label'),
-    companionButton: document.querySelector('#companion-button'),
-    companionPanel: document.querySelector('#companion-panel'),
-    companionThought: document.querySelector('#companion-thought'),
-    closeCompanion: document.querySelector('#close-companion'),
-    backdrop: document.querySelector('#sheet-backdrop'),
-    sheet: document.querySelector('#story-sheet'),
-    sheetContent: document.querySelector('#sheet-content'),
-    toast: document.querySelector('#toast'),
-    progressBadge: document.querySelector('#progress-badge'),
-    soundToggle: document.querySelector('#sound-toggle'),
-  };
+const imagePaths = {
+  arena: './assets/arena.webp',
+  hero: './assets/grape-fighter.webp',
+  sourling: './assets/sourling.webp',
+  moth: './assets/rumor-moth.webp',
+  brute: './assets/thorn-brute.webp',
+  boss: './assets/gripe-maw.webp',
+};
 
-  const palette = {
-    ink: '#120d1b',
-    grape: '#853fc0',
-    plum: '#4f1f69',
-    violet: '#bf86ee',
-    acid: '#c7ef3d',
-    amber: '#ffb351',
-    cream: '#fff8e9',
-    danger: '#ff6b68',
-    blue: '#6bd4ff',
-  };
+const images = {};
+let viewport = { width: 0, height: 0, dpr: 1 };
+let lastFrame = performance.now();
+let nextId = 1;
+let audioContext = null;
+let masterGain = null;
+let ambientNodes = [];
 
-  const WORLD = { width: 2200, height: 1500 };
-  const START = { x: 330, y: 940 };
-  const branch = { x: 840, y: 660, radius: 50 };
-  const fragments = [
-    {
-      id: 'seen',
-      x: 1115,
-      y: 455,
-      radius: 42,
-      color: palette.blue,
-      label: 'SEEN',
-      text: 'No reply arrived today.',
-    },
-    {
-      id: 'read',
-      x: 1225,
-      y: 890,
-      radius: 42,
-      color: palette.amber,
-      label: 'ASSUMED',
-      text: 'Silence means they do not care.',
-    },
-  ];
-  const fork = { x: 1670, y: 665, radius: 58 };
+const prefersReducedMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
+const savedTutorial = localStorage.getItem('grape-gripe-arena-tutorial') === 'done';
 
-  const reducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  const keys = new Set();
-  const collected = new Set();
-  const state = {
-    phase: 'approach',
-    modalOpen: false,
-    companionOpen: false,
-    waypoint: null,
-    outcome: null,
-    frame: 0,
-    elapsed: 0,
-    routeFlash: 0,
-    movementLearned: false,
-    branchAwake: false,
-    healed: false,
-  };
+const input = {
+  joystickId: null,
+  joyX: 0,
+  joyY: 0,
+  joyOriginX: 0,
+  joyOriginY: 0,
+  keys: new Set(),
+  tapTarget: null,
+  attackHeld: false,
+};
 
-  const player = {
-    x: START.x,
-    y: START.y,
-    vx: 0,
-    vy: 0,
-    facing: 0,
+const state = {
+  mode: 'loading',
+  paused: false,
+  sound: true,
+  time: 0,
+  score: 0,
+  energy: 0,
+  wave: 0,
+  waveClearTimer: 0,
+  wavePulse: 0,
+  shake: 0,
+  damageFlash: 0,
+  companion: 0,
+  maxCompanion: 100,
+  tutorial: savedTutorial ? 2 : 0,
+  upgrades: { power: 0, speed: 0, shield: 0 },
+  hero: null,
+  enemies: [],
+  bolts: [],
+  hostileBolts: [],
+  pickups: [],
+  particles: [],
+  shockwaves: [],
+  spawnQueue: [],
+  scenerySparks: [],
+};
+
+const enemyTypes = {
+  sourling: {
+    image: 'sourling',
+    hp: 3,
+    speed: 63,
+    damage: 13,
+    radius: 20,
+    size: 66,
+    score: 8,
+    companion: 14,
+    behavior: 'charge',
+  },
+  moth: {
+    image: 'moth',
+    hp: 4,
+    speed: 39,
+    damage: 10,
     radius: 22,
+    size: 72,
+    score: 12,
+    companion: 18,
+    behavior: 'ranged',
+  },
+  brute: {
+    image: 'brute',
+    hp: 12,
+    speed: 25,
+    damage: 22,
+    radius: 36,
+    size: 108,
+    score: 28,
+    companion: 32,
+    behavior: 'charge',
+  },
+  boss: {
+    image: 'boss',
+    hp: 54,
+    speed: 21,
+    damage: 24,
+    radius: 53,
+    size: 152,
+    score: 100,
+    companion: 100,
+    behavior: 'boss',
+  },
+};
+
+const waves = [
+  [
+    ['sourling', 0],
+    ['sourling', 0.7],
+    ['sourling', 1.4],
+    ['sourling', 2.1],
+    ['sourling', 2.8],
+    ['sourling', 3.5],
+  ],
+  [
+    ['moth', 0],
+    ['sourling', 0.5],
+    ['moth', 1],
+    ['sourling', 1.5],
+    ['brute', 2],
+    ['sourling', 2.6],
+    ['moth', 3.1],
+    ['sourling', 3.7],
+  ],
+  [
+    ['boss', 0],
+    ['sourling', 1.2],
+    ['moth', 2.4],
+    ['sourling', 3.6],
+  ],
+];
+
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+
+function distance(a, b) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+function arenaBounds() {
+  const portrait = viewport.height >= viewport.width;
+  return {
+    x: viewport.width * 0.5,
+    y: viewport.height * (portrait ? 0.49 : 0.52),
+    rx: Math.min(viewport.width * (portrait ? 0.44 : 0.39), viewport.height * 0.42),
+    ry: Math.min(viewport.height * (portrait ? 0.255 : 0.38), viewport.width * 0.52),
   };
-  const companion = {
-    x: START.x - 54,
-    y: START.y - 36,
+}
+
+function gameScale() {
+  return clamp(Math.min(viewport.width / 430, viewport.height / 860), 0.78, 1.22);
+}
+
+function announce(message) {
+  liveStatus.textContent = '';
+  requestAnimationFrame(() => {
+    liveStatus.textContent = message;
+  });
+}
+
+function vibrate(pattern) {
+  if (navigator.vibrate) navigator.vibrate(pattern);
+}
+
+function resize() {
+  const oldWidth = viewport.width || shell.clientWidth;
+  const oldHeight = viewport.height || shell.clientHeight;
+  viewport.width = shell.clientWidth;
+  viewport.height = shell.clientHeight;
+  viewport.dpr = Math.min(devicePixelRatio || 1, 2);
+  canvas.width = Math.round(viewport.width * viewport.dpr);
+  canvas.height = Math.round(viewport.height * viewport.dpr);
+  canvas.style.width = `${viewport.width}px`;
+  canvas.style.height = `${viewport.height}px`;
+  if (state.hero && oldWidth && oldHeight) {
+    state.hero.x *= viewport.width / oldWidth;
+    state.hero.y *= viewport.height / oldHeight;
+    keepInArena(state.hero, 0.86);
+  }
+  seedScenerySparks();
+}
+
+function seedScenerySparks() {
+  const count = Math.max(18, Math.round((viewport.width * viewport.height) / 26000));
+  state.scenerySparks = Array.from({ length: count }, () => ({
+    x: Math.random() * viewport.width,
+    y: Math.random() * viewport.height,
+    size: 0.6 + Math.random() * 2,
+    phase: Math.random() * Math.PI * 2,
+    speed: 0.25 + Math.random() * 0.5,
+    color: Math.random() > 0.72 ? '#d9ff45' : '#bd82ed',
+  }));
+}
+
+function keepInArena(entity, padding = 0.92) {
+  const arena = arenaBounds();
+  const dx = entity.x - arena.x;
+  const dy = entity.y - arena.y;
+  const normalized = (dx * dx) / ((arena.rx * padding) ** 2) + (dy * dy) / ((arena.ry * padding) ** 2);
+  if (normalized <= 1) return;
+  const factor = 1 / Math.sqrt(normalized);
+  entity.x = arena.x + dx * factor;
+  entity.y = arena.y + dy * factor;
+}
+
+function initializeSound() {
+  if (audioContext) {
+    if (audioContext.state === 'suspended') audioContext.resume();
+    return;
+  }
+  const AudioCtor = window.AudioContext || window.webkitAudioContext;
+  if (!AudioCtor) return;
+  audioContext = new AudioCtor();
+  masterGain = audioContext.createGain();
+  masterGain.gain.value = state.sound ? 0.18 : 0;
+  masterGain.connect(audioContext.destination);
+
+  const drone = audioContext.createOscillator();
+  const droneGain = audioContext.createGain();
+  const filter = audioContext.createBiquadFilter();
+  const lfo = audioContext.createOscillator();
+  const lfoGain = audioContext.createGain();
+  drone.type = 'sawtooth';
+  drone.frequency.value = 43.65;
+  filter.type = 'lowpass';
+  filter.frequency.value = 115;
+  filter.Q.value = 4;
+  droneGain.gain.value = 0.055;
+  lfo.frequency.value = 0.16;
+  lfoGain.gain.value = 18;
+  lfo.connect(lfoGain).connect(filter.frequency);
+  drone.connect(filter).connect(droneGain).connect(masterGain);
+  drone.start();
+  lfo.start();
+  ambientNodes = [drone, lfo];
+}
+
+function tone(frequency, duration = 0.12, type = 'sine', volume = 0.16, endFrequency = frequency) {
+  if (!audioContext || !state.sound) return;
+  const now = audioContext.currentTime;
+  const oscillator = audioContext.createOscillator();
+  const gain = audioContext.createGain();
+  oscillator.type = type;
+  oscillator.frequency.setValueAtTime(frequency, now);
+  oscillator.frequency.exponentialRampToValueAtTime(Math.max(20, endFrequency), now + duration);
+  gain.gain.setValueAtTime(volume, now);
+  gain.gain.exponentialRampToValueAtTime(0.001, now + duration);
+  oscillator.connect(gain).connect(masterGain);
+  oscillator.start(now);
+  oscillator.stop(now + duration + 0.02);
+}
+
+function sound(name) {
+  if (name === 'attack') tone(320, 0.09, 'triangle', 0.11, 180);
+  if (name === 'hit') tone(115, 0.08, 'square', 0.09, 72);
+  if (name === 'hurt') tone(92, 0.22, 'sawtooth', 0.15, 44);
+  if (name === 'dash') tone(160, 0.2, 'sine', 0.12, 620);
+  if (name === 'collect') tone(440 + Math.min(state.energy, 8) * 22, 0.1, 'sine', 0.08, 710);
+  if (name === 'burst') {
+    tone(90, 0.55, 'sine', 0.18, 520);
+    setTimeout(() => tone(680, 0.35, 'triangle', 0.1, 230), 90);
+  }
+  if (name === 'clear') {
+    tone(330, 0.18, 'triangle', 0.1, 440);
+    setTimeout(() => tone(495, 0.28, 'triangle', 0.12, 660), 130);
+  }
+  if (name === 'win') {
+    tone(220, 0.28, 'triangle', 0.12, 440);
+    setTimeout(() => tone(440, 0.35, 'triangle', 0.12, 880), 190);
+  }
+}
+
+function resetHero() {
+  const arena = arenaBounds();
+  state.hero = {
+    x: arena.x,
+    y: arena.y + arena.ry * 0.35,
     vx: 0,
     vy: 0,
+    facing: 1,
+    health: 100,
+    maxHealth: 100,
+    speed: 145,
+    damage: 2,
+    attackRate: 1,
+    attackCooldown: 0,
+    dashCooldown: 0,
+    dashMaxCooldown: 2.25,
+    dashTime: 0,
+    dashX: 0,
+    dashY: -1,
+    invulnerable: 0,
+    shieldPulse: 0,
   };
-  const camera = { x: START.x, y: START.y };
-  const joystick = { active: false, pointerId: null, x: 0, y: 0, magnitude: 0 };
+}
 
-  let viewWidth = window.innerWidth;
-  let viewHeight = window.innerHeight;
-  let dpr = Math.min(window.devicePixelRatio || 1, 2);
-  let lastTime = performance.now();
-  let toastTimer = 0;
-  let audio = null;
+function resetGame() {
+  state.mode = 'playing';
+  state.paused = false;
+  state.time = 0;
+  state.score = 0;
+  state.energy = 0;
+  state.wave = 0;
+  state.waveClearTimer = 0;
+  state.wavePulse = 1.6;
+  state.shake = 0;
+  state.damageFlash = 0;
+  state.companion = 0;
+  state.upgrades = { power: 0, speed: 0, shield: 0 };
+  state.enemies = [];
+  state.bolts = [];
+  state.hostileBolts = [];
+  state.pickups = [];
+  state.particles = [];
+  state.shockwaves = [];
+  state.spawnQueue = [];
+  input.tapTarget = null;
+  input.attackHeld = false;
+  resetHero();
+  hideAllOverlays();
+  hud.hidden = false;
+  soundButton.hidden = false;
+  pauseButton.hidden = false;
+  joystickZone.hidden = false;
+  actionCluster.hidden = false;
+  startWave(0);
+  updateTutorialUI();
+  updateUI();
+  announce('Battle started. Wave one.');
+}
 
-  const particles = Array.from({ length: reducedMotion ? 28 : 72 }, (_, index) => ({
-    x: Math.random() * WORLD.width,
-    y: Math.random() * WORLD.height,
-    size: 0.7 + Math.random() * 2.5,
-    depth: 0.35 + Math.random() * 0.9,
-    phase: Math.random() * Math.PI * 2 + index,
-  }));
+function hideAllOverlays() {
+  startScreen.hidden = true;
+  upgradeScreen.hidden = true;
+  pauseScreen.hidden = true;
+  endScreen.hidden = true;
+}
 
-  function readCompleted() {
-    try {
-      return window.localStorage.getItem('grapeGripe.playableBranch.complete') === 'true';
-    } catch {
-      return false;
+function startWave(index) {
+  state.wave = index;
+  state.waveClearTimer = 0;
+  state.wavePulse = 1.6;
+  state.spawnQueue = waves[index].map(([type, delay]) => ({ type, delay }));
+  state.enemies = state.enemies.filter((enemy) => !enemy.dead);
+  updateWaveUI();
+  if (index === 2) announce('Final wave. Boss incoming.');
+  else announce(`Wave ${index + 1}.`);
+}
+
+function spawnEnemy(typeName) {
+  const spec = enemyTypes[typeName];
+  const arena = arenaBounds();
+  const angle = Math.random() * Math.PI * 2;
+  const scale = gameScale();
+  const enemy = {
+    id: nextId++,
+    type: typeName,
+    x: arena.x + Math.cos(angle) * arena.rx * 0.91,
+    y: arena.y + Math.sin(angle) * arena.ry * 0.91,
+    vx: 0,
+    vy: 0,
+    hp: spec.hp,
+    maxHp: spec.hp,
+    speed: spec.speed * scale,
+    damage: spec.damage,
+    radius: spec.radius * scale,
+    size: spec.size * scale,
+    score: spec.score,
+    companion: spec.companion,
+    behavior: spec.behavior,
+    image: spec.image,
+    facing: Math.cos(angle) > 0 ? -1 : 1,
+    age: 0,
+    spawn: 0,
+    attackCooldown: 0.5 + Math.random() * 0.8,
+    touchCooldown: 0,
+    hitFlash: 0,
+    stunned: 0,
+    summoned: false,
+    dead: false,
+  };
+  state.enemies.push(enemy);
+  burstParticles(enemy.x, enemy.y, typeName === 'boss' ? '#ffb33e' : '#a55be2', typeName === 'boss' ? 26 : 10, 95);
+  state.shockwaves.push({ x: enemy.x, y: enemy.y, radius: 10, max: enemy.radius * 2.2, life: 0.55, color: typeName === 'boss' ? '#ffb33e' : '#bd82ed' });
+  updateUI();
+}
+
+function nearestEnemy(origin = state.hero, maxDistance = Infinity) {
+  let best = null;
+  let bestDistance = maxDistance;
+  for (const enemy of state.enemies) {
+    if (enemy.dead || enemy.spawn < 0.65) continue;
+    const d = distance(origin, enemy);
+    if (d < bestDistance) {
+      best = enemy;
+      bestDistance = d;
     }
   }
+  return best;
+}
 
-  function writeCompleted() {
-    try {
-      window.localStorage.setItem('grapeGripe.playableBranch.complete', 'true');
-    } catch {
-      // Private browsing can reject storage; completing the case still works.
-    }
+function attack() {
+  if (state.mode !== 'playing' || state.paused || !state.hero || state.hero.attackCooldown > 0) return false;
+  const target = nearestEnemy();
+  if (!target) return false;
+  const hero = state.hero;
+  const angle = Math.atan2(target.y - hero.y, target.x - hero.x);
+  hero.facing = Math.cos(angle) >= 0 ? 1 : -1;
+  hero.attackCooldown = 0.34 / hero.attackRate;
+  state.bolts.push({
+    x: hero.x + Math.cos(angle) * 24,
+    y: hero.y - 12 + Math.sin(angle) * 24,
+    vx: Math.cos(angle) * 470,
+    vy: Math.sin(angle) * 470,
+    radius: 7 + state.upgrades.power * 1.5,
+    damage: hero.damage,
+    life: 1.3,
+    targetId: target.id,
+  });
+  burstParticles(hero.x + Math.cos(angle) * 32, hero.y - 10 + Math.sin(angle) * 26, '#d9ff45', 5, 70);
+  state.shake = Math.max(state.shake, 1.4);
+  sound('attack');
+  if (state.tutorial === 1) {
+    state.tutorial = 2;
+    localStorage.setItem('grape-gripe-arena-tutorial', 'done');
+    updateTutorialUI();
   }
+  return true;
+}
 
-  function resize() {
-    viewWidth = window.innerWidth;
-    viewHeight = window.innerHeight;
-    dpr = Math.min(window.devicePixelRatio || 1, 2);
-    canvas.width = Math.round(viewWidth * dpr);
-    canvas.height = Math.round(viewHeight * dpr);
-    canvas.style.width = `${viewWidth}px`;
-    canvas.style.height = `${viewHeight}px`;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-  }
-
-  function clamp(value, min, max) {
-    return Math.max(min, Math.min(max, value));
-  }
-
-  function distance(a, b) {
-    return Math.hypot(a.x - b.x, a.y - b.y);
-  }
-
-  function vibrate(pattern = 18) {
-    if ('vibrate' in navigator) navigator.vibrate(pattern);
-  }
-
-  function showToast(message, duration = 2600) {
-    window.clearTimeout(toastTimer);
-    ui.toast.textContent = message;
-    ui.toast.hidden = false;
-    toastTimer = window.setTimeout(() => {
-      ui.toast.hidden = true;
-    }, duration);
-  }
-
-  function openSheet(content, focusSelector = 'button') {
-    closeCompanion();
-    state.modalOpen = true;
-    state.waypoint = null;
-    ui.sheetContent.innerHTML = content;
-    ui.backdrop.hidden = false;
-    ui.sheet.hidden = false;
-    window.setTimeout(() => ui.sheet.querySelector(focusSelector)?.focus(), 20);
-  }
-
-  function closeSheet() {
-    state.modalOpen = false;
-    ui.backdrop.hidden = true;
-    ui.sheet.hidden = true;
-    ui.sheetContent.innerHTML = '';
-    ui.actionButton.focus({ preventScroll: true });
-  }
-
-  function openCompanion() {
-    if (state.modalOpen) return;
-    state.companionOpen = true;
-    ui.companionPanel.hidden = false;
-    ui.companionButton.setAttribute('aria-expanded', 'true');
-    refreshCompanionThought();
-  }
-
-  function closeCompanion() {
-    state.companionOpen = false;
-    ui.companionPanel.hidden = true;
-    ui.companionButton.setAttribute('aria-expanded', 'false');
-  }
-
-  function toggleCompanion() {
-    if (state.companionOpen) closeCompanion();
-    else openCompanion();
-  }
-
-  function refreshCompanionThought() {
-    const thoughts = {
-      approach: 'Something happened. Meaning grew around it. Let’s find both.',
-      fragments: collected.size === 0
-        ? 'This branch split into two signals. One is what happened. One is what the storyteller added.'
-        : collected.size === 1
-          ? 'You found one fragment. The second may change how the first one feels.'
-          : 'One fragment is observable. The other is an interpretation. Neither tells us what happened on the other side.',
-      fork: 'You have enough to choose a move—but not enough to claim certainty.',
-      complete: 'The branch did not give you a verdict. It gave you a better choice.',
-    };
-    ui.companionThought.textContent = thoughts[state.phase];
-  }
-
-  function abilityMessage(ability) {
-    const phaseMessages = {
-      approach: {
-        scan: 'SCAN — The pulsing branch is carrying two signals: an event and a conclusion.',
-        reframe: 'REFRAME — Silence can mean indifference. It can also mean a life you cannot see yet.',
-        ask: 'ASK — What information could make you change your conclusion?',
-      },
-      fragments: {
-        scan: collected.size < 2
-          ? 'SCAN — Follow the blue and amber signals. They do not mean the same thing.'
-          : 'SCAN — The route to the fork is open.',
-        reframe: 'REFRAME — “They do not care” is possible, but the story does not prove it yet.',
-        ask: 'ASK — What happened on their side during the missing hours?',
-      },
-      fork: {
-        scan: 'SCAN — Three moves are possible. Each trades speed, certainty, and connection differently.',
-        reframe: 'REFRAME — The goal may not be proving what silence means. It may be deciding what you need next.',
-        ask: 'ASK — Which move would still feel fair if your first interpretation is wrong?',
-      },
-      complete: {
-        scan: 'SCAN — Known, assumed, and missing information are now separated.',
-        reframe: 'REFRAME — A clearer gripe can become a question, a boundary, or something you release.',
-        ask: 'ASK — What would you want another person to understand before responding?',
-      },
-    };
-    return phaseMessages[state.phase][ability];
-  }
-
-  function currentTarget() {
-    if (state.phase === 'approach') return branch;
-    if (state.phase === 'fragments') {
-      return fragments.find((item) => !collected.has(item.id)) || fork;
-    }
-    if (state.phase === 'fork') return fork;
-    return null;
-  }
-
-  function nearestInteractable() {
-    if (state.phase === 'complete') {
-      return { type: 'result', target: player, label: 'VIEW RESULT' };
-    }
-    if (state.phase === 'approach' && distance(player, branch) < 105) {
-      return { type: 'branch', target: branch, label: 'INSPECT' };
-    }
-    if (state.phase === 'fragments') {
-      const nearFragment = fragments.find(
-        (item) => !collected.has(item.id) && distance(player, item) < 100,
-      );
-      if (nearFragment) return { type: 'fragment', target: nearFragment, label: 'COLLECT' };
-      if (collected.size === fragments.length && distance(player, fork) < 115) {
-        return { type: 'fork', target: fork, label: 'CHOOSE' };
-      }
-    }
-    if (state.phase === 'fork' && distance(player, fork) < 115) {
-      return { type: 'fork', target: fork, label: 'CHOOSE' };
-    }
-    return null;
-  }
-
-  function updateHud() {
-    const target = currentTarget();
-    const meters = target ? Math.max(0, Math.round(distance(player, target) / 4)) : 0;
-    const interaction = nearestInteractable();
-
-    if (state.phase === 'approach') {
-      ui.location.textContent = 'THE ROOTWAY';
-      ui.objective.textContent = 'Reach the pulsing branch';
-      ui.route.textContent = 'Follow the acid-green signal';
-      ui.mapCaption.textContent = `BRANCH · ${meters}m`;
-    } else if (state.phase === 'fragments') {
-      ui.location.textContent = 'THE SPLIT STORY';
-      if (collected.size < fragments.length) {
-        ui.objective.textContent = `Find the story fragments · ${collected.size}/2`;
-        ui.route.textContent = collected.size ? 'One signal remains' : 'Blue was seen. Amber was assumed.';
-        ui.mapCaption.textContent = `FRAGMENT · ${meters}m`;
-      } else {
-        ui.objective.textContent = 'Follow the lit route to the fork';
-        ui.route.textContent = 'You found what happened and what was added';
-        ui.mapCaption.textContent = `FORK · ${meters}m`;
-      }
-    } else if (state.phase === 'fork') {
-      ui.location.textContent = 'THE FORK';
-      ui.objective.textContent = 'Choose what happens next';
-      ui.route.textContent = 'The companion advises. You decide.';
-      ui.mapCaption.textContent = `CHOICE · ${meters}m`;
+function dash() {
+  if (state.mode !== 'playing' || state.paused || state.hero.dashCooldown > 0) return;
+  const hero = state.hero;
+  let x = input.joyX;
+  let y = input.joyY;
+  if (Math.hypot(x, y) < 0.2) {
+    const enemy = nearestEnemy();
+    if (enemy) {
+      x = hero.x - enemy.x;
+      y = hero.y - enemy.y;
     } else {
-      ui.location.textContent = 'A CLEARER BRANCH';
-      ui.objective.textContent = 'Case complete';
-      ui.route.textContent = 'Keep exploring or replay the branch';
-      ui.mapCaption.textContent = 'UNTANGLED';
-    }
-
-    if (interaction) {
-      ui.actionButton.disabled = false;
-      ui.actionLabel.textContent = interaction.label;
-    } else {
-      ui.actionButton.disabled = true;
-      ui.actionLabel.textContent = state.phase === 'complete' ? 'COMPLETE' : 'MOVE CLOSER';
+      x = hero.facing;
+      y = 0;
     }
   }
+  const length = Math.hypot(x, y) || 1;
+  hero.dashX = x / length;
+  hero.dashY = y / length;
+  hero.dashTime = 0.24;
+  hero.invulnerable = 0.34;
+  hero.dashCooldown = hero.dashMaxCooldown;
+  state.shockwaves.push({ x: hero.x, y: hero.y, radius: 15, max: 70, life: 0.4, color: '#d8a4ff' });
+  burstParticles(hero.x, hero.y, '#bd82ed', 16, 150);
+  sound('dash');
+  vibrate(18);
+}
 
-  function inspectBranch() {
-    state.branchAwake = true;
-    vibrate([18, 25, 30]);
-    openSheet(`
-      <p class="eyebrow">WILD CASE 01</p>
-      <h2 id="sheet-title">The unread message</h2>
-      <div class="story-quote">“They ignored my message all day, so they clearly don’t care.”</div>
-      <p>The branch is carrying two different things: what happened and what the storyteller thinks it means.</p>
-      <div class="sheet-actions">
-        <button class="sheet-button secondary" type="button" data-action="leave">Not yet</button>
-        <button class="sheet-button primary" type="button" data-action="enter">Enter branch</button>
-      </div>
-    `);
-    ui.sheet.querySelector('[data-action="leave"]').addEventListener('click', closeSheet);
-    ui.sheet.querySelector('[data-action="enter"]').addEventListener('click', () => {
-      state.phase = 'fragments';
-      state.routeFlash = 1;
-      closeSheet();
-      showToast('The story split. Find what was seen and what was assumed.');
-      updateHud();
+function companionBurst() {
+  if (state.mode !== 'playing' || state.paused || state.companion < state.maxCompanion) return;
+  state.companion = 0;
+  const hero = state.hero;
+  state.shockwaves.push({ x: hero.x, y: hero.y, radius: 20, max: Math.max(viewport.width, viewport.height) * 0.58, life: 0.85, color: '#d9ff45' });
+  for (const enemy of state.enemies) {
+    if (enemy.dead) continue;
+    const d = distance(hero, enemy);
+    if (d < Math.max(viewport.width, viewport.height) * 0.56) {
+      enemy.stunned = 2.1;
+      hitEnemy(enemy, 5 + state.upgrades.power * 2, true);
+    }
+  }
+  for (const bolt of state.hostileBolts) bolt.dead = true;
+  burstParticles(hero.x, hero.y, '#d9ff45', 44, 260);
+  state.shake = 13;
+  sound('burst');
+  vibrate([22, 40, 35]);
+  updateUI();
+}
+
+function hitEnemy(enemy, damage, burst = false) {
+  if (enemy.dead) return;
+  enemy.hp -= damage;
+  enemy.hitFlash = 0.11;
+  const angle = Math.atan2(enemy.y - state.hero.y, enemy.x - state.hero.x);
+  enemy.vx += Math.cos(angle) * (burst ? 120 : 42);
+  enemy.vy += Math.sin(angle) * (burst ? 120 : 42);
+  burstParticles(enemy.x, enemy.y, enemy.type === 'boss' ? '#ffb33e' : '#d9ff45', burst ? 14 : 7, burst ? 150 : 90);
+  state.shake = Math.max(state.shake, enemy.type === 'boss' ? 6 : 3);
+  sound('hit');
+  if (enemy.hp <= 0) killEnemy(enemy);
+  else updateUI();
+}
+
+function killEnemy(enemy) {
+  enemy.dead = true;
+  state.score += enemy.score;
+  state.companion = clamp(state.companion + enemy.companion, 0, state.maxCompanion);
+  const pickupCount = enemy.type === 'boss' ? 10 : enemy.type === 'brute' ? 4 : 2;
+  for (let i = 0; i < pickupCount; i += 1) {
+    const angle = (i / pickupCount) * Math.PI * 2 + Math.random() * 0.4;
+    state.pickups.push({
+      x: enemy.x,
+      y: enemy.y,
+      vx: Math.cos(angle) * (35 + Math.random() * 65),
+      vy: Math.sin(angle) * (35 + Math.random() * 65),
+      life: 8,
+      age: 0,
+      spin: Math.random() * Math.PI,
     });
   }
+  state.shockwaves.push({ x: enemy.x, y: enemy.y, radius: 12, max: enemy.radius * 2.6, life: 0.5, color: enemy.type === 'boss' ? '#ffb33e' : '#a45add' });
+  burstParticles(enemy.x, enemy.y, enemy.type === 'boss' ? '#ffb33e' : '#8e42d0', enemy.type === 'boss' ? 55 : 18, enemy.type === 'boss' ? 250 : 145);
+  if (enemy.type === 'boss') state.shake = 22;
+  updateUI();
+}
 
-  function collectFragment(fragment) {
-    if (collected.has(fragment.id)) return;
-    collected.add(fragment.id);
-    state.routeFlash = 1;
-    vibrate(24);
-    showToast(`${fragment.label} — ${fragment.text}`, 3000);
-    if (collected.size === fragments.length) {
-      window.setTimeout(() => {
-        state.phase = 'fork';
-        showToast('Two fragments. One happened. One was added. The route to the fork is open.', 3600);
-        refreshCompanionThought();
-      }, 800);
-    }
-    updateHud();
-  }
+function damageHero(amount) {
+  const hero = state.hero;
+  if (!hero || hero.invulnerable > 0 || state.mode !== 'playing') return;
+  const shieldReduction = 1 - state.upgrades.shield * 0.14;
+  hero.health = Math.max(0, hero.health - Math.round(amount * shieldReduction));
+  hero.invulnerable = 0.65;
+  hero.shieldPulse = 0.45;
+  state.damageFlash = 0.35;
+  state.shake = 12;
+  burstParticles(hero.x, hero.y, '#ff4c70', 18, 185);
+  sound('hurt');
+  vibrate([18, 28, 25]);
+  updateUI();
+  if (hero.health <= 0) finishGame(false);
+}
 
-  const outcomes = {
-    context: {
-      title: 'Leave room for the missing side',
-      move: 'Ask what happened before deciding what the silence means.',
-      note: 'Curious, not gullible.',
-      color: palette.acid,
-    },
-    boundary: {
-      title: 'Choose a clear boundary',
-      move: 'Follow up once tomorrow, then decide what you need if silence continues.',
-      note: 'Patient, with a spine.',
-      color: palette.blue,
-    },
-    heat: {
-      title: 'Choose speed over context',
-      move: 'Send the angry paragraph now and accept that it may close the branch.',
-      note: 'Hot, immediate, expensive.',
-      color: palette.danger,
-    },
-  };
+function spawnHostileBolt(enemy, angle, speed = 145) {
+  state.hostileBolts.push({
+    x: enemy.x,
+    y: enemy.y,
+    vx: Math.cos(angle) * speed,
+    vy: Math.sin(angle) * speed,
+    radius: enemy.type === 'boss' ? 9 : 7,
+    damage: enemy.damage,
+    life: 4,
+    dead: false,
+  });
+}
 
-  function openFork() {
-    openSheet(`
-      <p class="eyebrow">THE FORK</p>
-      <h2 id="sheet-title">What happens next?</h2>
-      <p>You know there was no reply. You do not know why. Choose the tradeoff you actually want.</p>
-      <div class="choice-list">
-        <button class="choice-button" type="button" data-outcome="context">
-          Ask what happened on their side
-          <small>More context before a conclusion</small>
-        </button>
-        <button class="choice-button" type="button" data-outcome="boundary">
-          Set a time to follow up
-          <small>A boundary without pretending certainty</small>
-        </button>
-        <button class="choice-button" type="button" data-outcome="heat">
-          Send the angry paragraph now
-          <small>Fast relief with a real consequence</small>
-        </button>
-      </div>
-    `);
-    ui.sheet.querySelectorAll('[data-outcome]').forEach((button) => {
-      button.addEventListener('click', () => completeCase(button.dataset.outcome));
-    });
-  }
+function updateMovement(dt) {
+  const hero = state.hero;
+  let x = input.joyX;
+  let y = input.joyY;
+  if (input.keys.has('arrowleft') || input.keys.has('a')) x -= 1;
+  if (input.keys.has('arrowright') || input.keys.has('d')) x += 1;
+  if (input.keys.has('arrowup') || input.keys.has('w')) y -= 1;
+  if (input.keys.has('arrowdown') || input.keys.has('s')) y += 1;
 
-  function completeCase(outcomeKey) {
-    state.outcome = outcomes[outcomeKey];
-    state.phase = 'complete';
-    state.healed = outcomeKey !== 'heat';
-    state.routeFlash = 1;
-    writeCompleted();
-    ui.progressBadge.hidden = false;
-    vibrate([22, 34, 22]);
-    openResultCard();
-    updateHud();
-  }
-
-  function openResultCard() {
-    const outcome = state.outcome || outcomes.context;
-    openSheet(`
-      <p class="eyebrow">CASE COMPLETE</p>
-      <h2 id="sheet-title">${outcome.title}</h2>
-      <p>${outcome.move}</p>
-      <div class="case-grid">
-        <div class="case-field"><strong>KNOWN</strong><span>No reply arrived today.</span></div>
-        <div class="case-field"><strong>ASSUMED</strong><span>Silence means they do not care.</span></div>
-        <div class="case-field"><strong>MISSING</strong><span>What happened on their side.</span></div>
-        <div class="case-field"><strong>YOUR MOVE</strong><span>${outcome.note}</span></div>
-      </div>
-      <div class="sheet-actions">
-        <button class="sheet-button secondary" type="button" data-action="explore">Keep exploring</button>
-        <button class="sheet-button primary" type="button" data-action="restart">Replay branch</button>
-      </div>
-    `);
-    ui.sheet.querySelector('[data-action="explore"]').addEventListener('click', closeSheet);
-    ui.sheet.querySelector('[data-action="restart"]').addEventListener('click', resetCase);
-  }
-
-  function resetCase() {
-    collected.clear();
-    state.phase = 'approach';
-    state.outcome = null;
-    state.waypoint = null;
-    state.branchAwake = false;
-    state.healed = false;
-    player.x = START.x;
-    player.y = START.y;
-    player.vx = 0;
-    player.vy = 0;
-    companion.x = START.x - 54;
-    companion.y = START.y - 36;
-    camera.x = START.x;
-    camera.y = START.y;
-    closeSheet();
-    showToast('Branch reset. Follow the signal when you are ready.');
-    updateHud();
-  }
-
-  function handleAction() {
-    if (state.modalOpen) return;
-    const interaction = nearestInteractable();
-    if (!interaction) return;
-    state.waypoint = null;
-    if (interaction.type === 'branch') inspectBranch();
-    if (interaction.type === 'fragment') collectFragment(interaction.target);
-    if (interaction.type === 'fork') openFork();
-    if (interaction.type === 'result') openResultCard();
-  }
-
-  function routeDetails() {
-    const target = currentTarget();
-    const meters = target ? Math.max(0, Math.round(distance(player, target) / 4)) : 0;
-    const routeCopy = {
-      approach: ['Pulsing branch', `${meters}m away`, 'Open route', 'Reach it, then use Inspect.'],
-      fragments: collected.size < 2
-        ? ['Story fragment', `${meters}m away`, 'Open route', 'Blue is observed. Amber is interpreted.']
-        : ['The fork', `${meters}m away`, 'Open route', 'Both fragments are collected.'],
-      fork: ['The fork', `${meters}m away`, 'Open route', 'Reach it to choose what happens next.'],
-      complete: ['Branch untangled', 'Current location', 'No locked routes', 'You can keep exploring or replay.'],
-    }[state.phase];
-    openSheet(`
-      <p class="eyebrow">ROUTE DETAILS</p>
-      <h2 id="sheet-title">${routeCopy[0]}</h2>
-      <div class="case-grid">
-        <div class="case-field"><strong>DISTANCE</strong><span>${routeCopy[1]}</span></div>
-        <div class="case-field"><strong>STATUS</strong><span>${routeCopy[2]}</span></div>
-        <div class="case-field"><strong>WHY LOCKED?</strong><span>No locked path.</span></div>
-        <div class="case-field"><strong>WHAT NEXT?</strong><span>${routeCopy[3]}</span></div>
-      </div>
-      <div class="sheet-actions">
-        <button class="sheet-button primary" type="button" data-action="return">Return to branch</button>
-      </div>
-    `);
-    ui.sheet.querySelector('[data-action="return"]').addEventListener('click', closeSheet);
-  }
-
-  function setupJoystick() {
-    const zone = ui.joystickZone;
-    const maxRadius = 45;
-
-    function begin(event) {
-      if (joystick.active || state.modalOpen) return;
-      event.preventDefault();
-      joystick.active = true;
-      joystick.pointerId = event.pointerId;
-      zone.setPointerCapture(event.pointerId);
-      zone.classList.add('is-active');
-
-      const rect = zone.getBoundingClientRect();
-      const baseRadius = 59;
-      const x = clamp(event.clientX - rect.left, baseRadius, rect.width - baseRadius);
-      const y = clamp(event.clientY - rect.top, baseRadius, rect.height - baseRadius);
-      ui.joystickBase.style.left = `${x - baseRadius}px`;
-      ui.joystickBase.style.top = `${y - baseRadius}px`;
-      ui.joystickBase.style.bottom = 'auto';
-      joystick.originX = rect.left + x;
-      joystick.originY = rect.top + y;
-      move(event);
-    }
-
-    function move(event) {
-      if (!joystick.active || event.pointerId !== joystick.pointerId) return;
-      event.preventDefault();
-      const dx = event.clientX - joystick.originX;
-      const dy = event.clientY - joystick.originY;
-      const length = Math.hypot(dx, dy) || 1;
-      const limited = Math.min(length, maxRadius);
-      joystick.x = dx / length;
-      joystick.y = dy / length;
-      joystick.magnitude = limited / maxRadius;
-      ui.joystickKnob.style.transform = `translate(${joystick.x * limited}px, ${joystick.y * limited}px)`;
-    }
-
-    function end(event) {
-      if (!joystick.active || event.pointerId !== joystick.pointerId) return;
-      joystick.active = false;
-      joystick.pointerId = null;
-      joystick.x = 0;
-      joystick.y = 0;
-      joystick.magnitude = 0;
-      zone.classList.remove('is-active');
-      ui.joystickKnob.style.transform = '';
-      ui.joystickBase.style.left = '';
-      ui.joystickBase.style.top = '';
-      ui.joystickBase.style.bottom = '';
-    }
-
-    zone.addEventListener('pointerdown', begin);
-    zone.addEventListener('pointermove', move);
-    zone.addEventListener('pointerup', end);
-    zone.addEventListener('pointercancel', end);
-  }
-
-  function keyboardVector() {
-    let x = 0;
-    let y = 0;
-    if (keys.has('ArrowLeft') || keys.has('KeyA')) x -= 1;
-    if (keys.has('ArrowRight') || keys.has('KeyD')) x += 1;
-    if (keys.has('ArrowUp') || keys.has('KeyW')) y -= 1;
-    if (keys.has('ArrowDown') || keys.has('KeyS')) y += 1;
-    const length = Math.hypot(x, y);
-    return length ? { x: x / length, y: y / length, magnitude: 1 } : { x: 0, y: 0, magnitude: 0 };
-  }
-
-  function movementVector() {
-    const keyboard = keyboardVector();
-    if (keyboard.magnitude) return keyboard;
-    if (joystick.magnitude) return joystick;
-    if (state.waypoint) {
-      const dx = state.waypoint.x - player.x;
-      const dy = state.waypoint.y - player.y;
+  if (Math.hypot(x, y) < 0.1 && input.tapTarget) {
+    const dx = input.tapTarget.x - hero.x;
+    const dy = input.tapTarget.y - hero.y;
+    if (Math.hypot(dx, dy) < 10) input.tapTarget = null;
+    else {
       const length = Math.hypot(dx, dy);
-      if (length < 16) {
-        state.waypoint = null;
-        return { x: 0, y: 0, magnitude: 0 };
+      x = dx / length;
+      y = dy / length;
+    }
+  } else if (Math.hypot(x, y) >= 0.1) {
+    input.tapTarget = null;
+  }
+
+  const inputLength = Math.hypot(x, y);
+  if (inputLength > 1) {
+    x /= inputLength;
+    y /= inputLength;
+  }
+
+  if (inputLength > 0.14 && state.tutorial === 0) {
+    state.tutorial = 1;
+    updateTutorialUI();
+  }
+
+  if (hero.dashTime > 0) {
+    hero.dashTime -= dt;
+    hero.vx = hero.dashX * hero.speed * 3.25;
+    hero.vy = hero.dashY * hero.speed * 3.25;
+    if (Math.random() > 0.45) burstParticles(hero.x, hero.y, '#8e42d0', 2, 35);
+  } else {
+    const easing = 1 - Math.exp(-dt * 11);
+    hero.vx += (x * hero.speed - hero.vx) * easing;
+    hero.vy += (y * hero.speed - hero.vy) * easing;
+  }
+
+  hero.x += hero.vx * dt;
+  hero.y += hero.vy * dt;
+  keepInArena(hero, 0.86);
+  if (Math.abs(hero.vx) > 8) hero.facing = hero.vx >= 0 ? 1 : -1;
+}
+
+function updateEnemies(dt) {
+  const hero = state.hero;
+  for (const enemy of state.enemies) {
+    if (enemy.dead) continue;
+    enemy.age += dt;
+    enemy.spawn = Math.min(1, enemy.spawn + dt * 2.8);
+    enemy.attackCooldown -= dt;
+    enemy.touchCooldown -= dt;
+    enemy.hitFlash = Math.max(0, enemy.hitFlash - dt);
+    enemy.stunned = Math.max(0, enemy.stunned - dt);
+    if (enemy.spawn < 0.72 || enemy.stunned > 0) {
+      enemy.vx *= Math.exp(-dt * 6);
+      enemy.vy *= Math.exp(-dt * 6);
+      enemy.x += enemy.vx * dt;
+      enemy.y += enemy.vy * dt;
+      continue;
+    }
+
+    const dx = hero.x - enemy.x;
+    const dy = hero.y - enemy.y;
+    const d = Math.hypot(dx, dy) || 1;
+    const nx = dx / d;
+    const ny = dy / d;
+    let desired = enemy.speed;
+
+    if (enemy.behavior === 'ranged') {
+      desired = d > 175 * gameScale() ? enemy.speed : d < 120 * gameScale() ? -enemy.speed * 0.65 : 0;
+      if (enemy.attackCooldown <= 0 && d < 300 * gameScale()) {
+        spawnHostileBolt(enemy, Math.atan2(dy, dx), 150 * gameScale());
+        enemy.attackCooldown = 1.75 + Math.random() * 0.5;
+        burstParticles(enemy.x, enemy.y, '#df52ff', 5, 55);
       }
-      return { x: dx / length, y: dy / length, magnitude: Math.min(1, length / 80) };
-    }
-    return { x: 0, y: 0, magnitude: 0 };
-  }
-
-  function update(dt) {
-    state.elapsed += dt;
-    state.routeFlash = Math.max(0, state.routeFlash - dt * 0.65);
-
-    const input = state.modalOpen ? { x: 0, y: 0, magnitude: 0 } : movementVector();
-    const speed = 285;
-    const responsiveness = input.magnitude ? 6.8 : 4.1;
-    const desiredVx = input.x * speed * input.magnitude;
-    const desiredVy = input.y * speed * input.magnitude;
-    const blend = Math.min(1, responsiveness * dt);
-    player.vx += (desiredVx - player.vx) * blend;
-    player.vy += (desiredVy - player.vy) * blend;
-
-    player.x = clamp(player.x + player.vx * dt, 70, WORLD.width - 70);
-    player.y = clamp(player.y + player.vy * dt, 70, WORLD.height - 70);
-    if (Math.hypot(player.vx, player.vy) > 6) player.facing = Math.atan2(player.vy, player.vx);
-
-    if (!state.movementLearned && Math.hypot(player.x - START.x, player.y - START.y) > 75) {
-      state.movementLearned = true;
-      ui.coachmark.classList.add('is-hidden');
-      window.setTimeout(() => { ui.coachmark.hidden = true; }, 320);
-      showToast('Good. The minimap always shows your next destination.');
     }
 
-    const followAngle = player.facing + Math.PI * 0.85;
-    const followTarget = {
-      x: player.x + Math.cos(followAngle) * 58,
-      y: player.y + Math.sin(followAngle) * 58,
-    };
-    companion.x += (followTarget.x - companion.x) * Math.min(1, dt * 3.2);
-    companion.y += (followTarget.y - companion.y) * Math.min(1, dt * 3.2);
+    if (enemy.behavior === 'boss') {
+      desired = d > 155 * gameScale() ? enemy.speed : 0;
+      if (enemy.attackCooldown <= 0) {
+        const base = Math.atan2(dy, dx);
+        for (let i = -2; i <= 2; i += 1) spawnHostileBolt(enemy, base + i * 0.24, 122 * gameScale());
+        enemy.attackCooldown = 2.25;
+        state.shockwaves.push({ x: enemy.x, y: enemy.y, radius: 15, max: 82, life: 0.46, color: '#ff4c70' });
+        burstParticles(enemy.x, enemy.y, '#ff4c70', 12, 110);
+      }
+      if (!enemy.summoned && enemy.hp < enemy.maxHp * 0.5) {
+        enemy.summoned = true;
+        spawnEnemy('sourling');
+        spawnEnemy('moth');
+        state.shake = 10;
+      }
+    }
 
-    const lead = reducedMotion ? 0 : 70;
-    const cameraTargetX = player.x + Math.cos(player.facing) * lead;
-    const cameraTargetY = player.y + Math.sin(player.facing) * lead;
-    camera.x += (cameraTargetX - camera.x) * Math.min(1, dt * 4.3);
-    camera.y += (cameraTargetY - camera.y) * Math.min(1, dt * 4.3);
-    camera.x = clamp(camera.x, viewWidth / 2, WORLD.width - viewWidth / 2);
-    camera.y = clamp(camera.y, viewHeight / 2, WORLD.height - viewHeight / 2);
+    const easing = 1 - Math.exp(-dt * 3.8);
+    enemy.vx += (nx * desired - enemy.vx) * easing;
+    enemy.vy += (ny * desired - enemy.vy) * easing;
+    enemy.x += enemy.vx * dt;
+    enemy.y += enemy.vy * dt;
+    keepInArena(enemy, 0.94);
+    if (Math.abs(enemy.vx) > 2) enemy.facing = enemy.vx >= 0 ? 1 : -1;
 
-    updateHud();
+    if (d < enemy.radius + 24 * gameScale() && enemy.touchCooldown <= 0) {
+      damageHero(enemy.damage);
+      enemy.touchCooldown = 1.05;
+      enemy.vx -= nx * 125;
+      enemy.vy -= ny * 125;
+    }
   }
+}
 
-  function drawBackground() {
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    const gradient = ctx.createRadialGradient(
-      viewWidth * 0.62,
-      viewHeight * 0.3,
-      20,
-      viewWidth * 0.55,
-      viewHeight * 0.46,
-      Math.max(viewWidth, viewHeight),
-    );
-    gradient.addColorStop(0, state.healed ? '#1d2630' : '#23122f');
-    gradient.addColorStop(0.5, '#11131f');
-    gradient.addColorStop(1, '#070a10');
+function updateBolts(dt) {
+  for (const bolt of state.bolts) {
+    bolt.life -= dt;
+    const target = state.enemies.find((enemy) => enemy.id === bolt.targetId && !enemy.dead);
+    if (target) {
+      const desiredAngle = Math.atan2(target.y - bolt.y, target.x - bolt.x);
+      const speed = Math.hypot(bolt.vx, bolt.vy);
+      const currentAngle = Math.atan2(bolt.vy, bolt.vx);
+      let delta = desiredAngle - currentAngle;
+      while (delta > Math.PI) delta -= Math.PI * 2;
+      while (delta < -Math.PI) delta += Math.PI * 2;
+      const nextAngle = currentAngle + clamp(delta, -dt * 5, dt * 5);
+      bolt.vx = Math.cos(nextAngle) * speed;
+      bolt.vy = Math.sin(nextAngle) * speed;
+    }
+    bolt.x += bolt.vx * dt;
+    bolt.y += bolt.vy * dt;
+    if (Math.random() > 0.35) state.particles.push({ x: bolt.x, y: bolt.y, vx: 0, vy: 0, size: 2.5, life: 0.22, maxLife: 0.22, color: '#d9ff45' });
+    for (const enemy of state.enemies) {
+      if (enemy.dead || enemy.spawn < 0.6) continue;
+      if (distance(bolt, enemy) < bolt.radius + enemy.radius * 0.76) {
+        hitEnemy(enemy, bolt.damage);
+        bolt.life = 0;
+        break;
+      }
+    }
+  }
+  state.bolts = state.bolts.filter((bolt) => bolt.life > 0);
+
+  for (const bolt of state.hostileBolts) {
+    if (bolt.dead) continue;
+    bolt.life -= dt;
+    bolt.x += bolt.vx * dt;
+    bolt.y += bolt.vy * dt;
+    if (distance(bolt, state.hero) < bolt.radius + 19 * gameScale()) {
+      damageHero(bolt.damage);
+      bolt.dead = true;
+    }
+  }
+  state.hostileBolts = state.hostileBolts.filter((bolt) => !bolt.dead && bolt.life > 0);
+}
+
+function updatePickups(dt) {
+  for (const pickup of state.pickups) {
+    pickup.age += dt;
+    pickup.life -= dt;
+    pickup.spin += dt * 5;
+    const dx = state.hero.x - pickup.x;
+    const dy = state.hero.y - pickup.y;
+    const d = Math.hypot(dx, dy) || 1;
+    if (pickup.age < 0.38) {
+      pickup.vx *= Math.exp(-dt * 4);
+      pickup.vy *= Math.exp(-dt * 4);
+    } else if (d < 155 * gameScale()) {
+      pickup.vx += (dx / d) * 840 * dt;
+      pickup.vy += (dy / d) * 840 * dt;
+    }
+    pickup.x += pickup.vx * dt;
+    pickup.y += pickup.vy * dt;
+    if (d < 25 * gameScale()) {
+      pickup.life = 0;
+      state.energy += 1;
+      state.score += 2;
+      burstParticles(state.hero.x, state.hero.y - 15, '#d9ff45', 4, 60);
+      sound('collect');
+      updateUI();
+    }
+  }
+  state.pickups = state.pickups.filter((pickup) => pickup.life > 0);
+}
+
+function burstParticles(x, y, color, count, speed) {
+  const reducedCount = prefersReducedMotion ? Math.ceil(count * 0.35) : count;
+  for (let i = 0; i < reducedCount; i += 1) {
+    const angle = Math.random() * Math.PI * 2;
+    const velocity = speed * (0.25 + Math.random() * 0.75);
+    const life = 0.28 + Math.random() * 0.48;
+    state.particles.push({
+      x,
+      y,
+      vx: Math.cos(angle) * velocity,
+      vy: Math.sin(angle) * velocity,
+      size: 1.5 + Math.random() * 4,
+      life,
+      maxLife: life,
+      color,
+    });
+  }
+}
+
+function updateEffects(dt) {
+  for (const particle of state.particles) {
+    particle.life -= dt;
+    particle.x += particle.vx * dt;
+    particle.y += particle.vy * dt;
+    particle.vx *= Math.exp(-dt * 2.8);
+    particle.vy *= Math.exp(-dt * 2.8);
+  }
+  state.particles = state.particles.filter((particle) => particle.life > 0);
+  for (const wave of state.shockwaves) {
+    wave.life -= dt;
+    wave.radius += (wave.max - wave.radius) * Math.min(1, dt * 7);
+  }
+  state.shockwaves = state.shockwaves.filter((wave) => wave.life > 0);
+  state.shake = Math.max(0, state.shake - dt * 28);
+  state.damageFlash = Math.max(0, state.damageFlash - dt);
+  state.wavePulse = Math.max(0, state.wavePulse - dt);
+  if (state.hero) {
+    state.hero.invulnerable = Math.max(0, state.hero.invulnerable - dt);
+    state.hero.shieldPulse = Math.max(0, state.hero.shieldPulse - dt);
+  }
+}
+
+function updateWave(dt) {
+  for (const item of state.spawnQueue) item.delay -= dt;
+  const ready = state.spawnQueue.filter((item) => item.delay <= 0);
+  state.spawnQueue = state.spawnQueue.filter((item) => item.delay > 0);
+  for (const item of ready) spawnEnemy(item.type);
+
+  const alive = state.enemies.some((enemy) => !enemy.dead);
+  if (!alive && state.spawnQueue.length === 0) {
+    state.waveClearTimer += dt;
+    if (state.waveClearTimer > 1.15) {
+      state.waveClearTimer = -99;
+      if (state.wave >= waves.length - 1) finishGame(true);
+      else showUpgrade();
+    }
+  }
+}
+
+function update(dt) {
+  if (state.mode !== 'playing' || state.paused) return;
+  state.time += dt;
+  state.hero.attackCooldown = Math.max(0, state.hero.attackCooldown - dt);
+  state.hero.dashCooldown = Math.max(0, state.hero.dashCooldown - dt);
+  updateMovement(dt);
+  updateEnemies(dt);
+  updateBolts(dt);
+  updatePickups(dt);
+  updateEffects(dt);
+  updateWave(dt);
+  if (input.attackHeld) attack();
+  updateCooldownUI();
+}
+
+function showUpgrade() {
+  state.mode = 'upgrade';
+  input.attackHeld = false;
+  attackButton.classList.remove('is-held');
+  upgradeScreen.hidden = false;
+  sound('clear');
+  vibrate([18, 34, 18]);
+  updateUpgradeDots();
+  announce('Wave cleared. Choose one of three powers.');
+}
+
+function chooseUpgrade(type) {
+  state.upgrades[type] = Math.min(3, state.upgrades[type] + 1);
+  if (type === 'power') {
+    state.hero.damage += 1;
+    state.hero.attackRate += 0.12;
+  }
+  if (type === 'speed') {
+    state.hero.speed += 18;
+    state.hero.dashMaxCooldown = Math.max(1.3, state.hero.dashMaxCooldown - 0.28);
+  }
+  if (type === 'shield') {
+    state.hero.maxHealth += 22;
+    state.hero.health = state.hero.maxHealth;
+  }
+  upgradeScreen.hidden = true;
+  state.mode = 'playing';
+  startWave(state.wave + 1);
+  burstParticles(state.hero.x, state.hero.y, type === 'power' ? '#ffb33e' : type === 'speed' ? '#d9ff45' : '#8ee8ff', 28, 190);
+  state.shockwaves.push({ x: state.hero.x, y: state.hero.y, radius: 12, max: 120, life: 0.55, color: type === 'shield' ? '#8ee8ff' : '#d9ff45' });
+  tone(type === 'power' ? 260 : type === 'speed' ? 520 : 390, 0.35, 'triangle', 0.12, 780);
+  updateUI();
+}
+
+function finishGame(won) {
+  if (state.mode === 'ended') return;
+  state.mode = 'ended';
+  input.attackHeld = false;
+  endScreen.hidden = false;
+  endScreen.classList.toggle('is-loss', !won);
+  finalScore.textContent = String(state.score + state.energy * 3);
+  joystickZone.hidden = true;
+  actionCluster.hidden = true;
+  pauseButton.hidden = true;
+  bossHealth.hidden = true;
+  if (won) {
+    sound('win');
+    vibrate([30, 40, 30, 40, 60]);
+    const best = Math.max(Number(localStorage.getItem('grape-gripe-arena-best') || 0), state.score + state.energy * 3);
+    localStorage.setItem('grape-gripe-arena-best', String(best));
+    announce('Arena cleared.');
+  } else {
+    announce('Battle ended. Try again.');
+  }
+}
+
+function pauseBattle() {
+  if (state.mode !== 'playing') return;
+  state.paused = true;
+  input.attackHeld = false;
+  pauseScreen.hidden = false;
+  pauseButton.setAttribute('aria-label', 'Resume battle');
+  announce('Battle paused.');
+}
+
+function resumeBattle() {
+  if (!state.paused) return;
+  state.paused = false;
+  pauseScreen.hidden = true;
+  pauseButton.setAttribute('aria-label', 'Pause battle');
+  lastFrame = performance.now();
+  announce('Battle resumed.');
+}
+
+function updateTutorialUI() {
+  tutorialFocus.hidden = state.tutorial !== 0 || state.mode !== 'playing';
+  attackButton.classList.toggle('is-prompted', state.tutorial === 1 && state.mode === 'playing');
+}
+
+function updateWaveUI() {
+  document.querySelectorAll('.wave-pip').forEach((pip, index) => {
+    pip.classList.toggle('active', index === state.wave);
+    pip.classList.toggle('complete', index < state.wave);
+  });
+  document.querySelectorAll('.wave-line').forEach((line, index) => {
+    line.classList.toggle('complete', index < state.wave);
+  });
+}
+
+function updateUpgradeDots() {
+  document.querySelectorAll('.upgrade-card').forEach((card) => {
+    const level = state.upgrades[card.dataset.upgrade];
+    card.querySelectorAll('.level-dots i').forEach((dot, index) => dot.classList.toggle('filled', index < level));
+  });
+}
+
+function updateCooldownUI() {
+  if (!state.hero) return;
+  const dashProgress = state.hero.dashCooldown > 0 ? state.hero.dashCooldown / state.hero.dashMaxCooldown : 0;
+  dashButton.style.setProperty('--cooldown', String(1 - dashProgress));
+  dashButton.disabled = state.hero.dashCooldown > 0;
+  companionButton.style.setProperty('--cooldown', String(state.companion / state.maxCompanion));
+  companionButton.classList.toggle('is-ready', state.companion >= state.maxCompanion);
+  companionButton.disabled = state.companion < state.maxCompanion;
+}
+
+function updateUI() {
+  if (!state.hero) return;
+  healthFill.style.width = `${clamp(state.hero.health / state.hero.maxHealth, 0, 1) * 100}%`;
+  energyCount.textContent = String(state.energy);
+  updateCooldownUI();
+  const boss = state.enemies.find((enemy) => enemy.type === 'boss' && !enemy.dead);
+  bossHealth.hidden = !boss;
+  if (boss) bossHealthFill.style.width = `${clamp(boss.hp / boss.maxHp, 0, 1) * 100}%`;
+}
+
+function drawBackground() {
+  const image = images.arena;
+  ctx.fillStyle = '#080510';
+  ctx.fillRect(0, 0, viewport.width, viewport.height);
+  if (image) {
+    const scale = Math.max(viewport.width / image.width, viewport.height / image.height);
+    const width = image.width * scale;
+    const height = image.height * scale;
+    ctx.drawImage(image, (viewport.width - width) * 0.5, (viewport.height - height) * 0.5, width, height);
+  }
+  for (const spark of state.scenerySparks) {
+    const alpha = 0.08 + (Math.sin(state.time * spark.speed + spark.phase) + 1) * 0.08;
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = spark.color;
+    ctx.beginPath();
+    ctx.arc(spark.x, spark.y, spark.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawShadow(x, y, width, alpha = 0.36) {
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.scale(1, 0.34);
+  const gradient = ctx.createRadialGradient(0, 0, 0, 0, 0, width * 0.55);
+  gradient.addColorStop(0, `rgba(0,0,0,${alpha})`);
+  gradient.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = gradient;
+  ctx.beginPath();
+  ctx.arc(0, 0, width * 0.55, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawSprite(image, x, y, width, facing = 1, alpha = 1, filter = 'none', rotation = 0) {
+  if (!image) return;
+  const ratio = image.height / image.width;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(x, y);
+  ctx.rotate(rotation);
+  ctx.scale(facing, 1);
+  ctx.filter = filter;
+  ctx.drawImage(image, -width * 0.5, -width * ratio * 0.86, width, width * ratio);
+  ctx.restore();
+}
+
+function drawPickups() {
+  for (const pickup of state.pickups) {
+    const pulse = 1 + Math.sin(state.time * 7 + pickup.spin) * 0.18;
+    ctx.save();
+    ctx.translate(pickup.x, pickup.y);
+    ctx.rotate(pickup.spin);
+    ctx.shadowColor = '#d9ff45';
+    ctx.shadowBlur = 14;
+    ctx.fillStyle = '#d9ff45';
+    ctx.beginPath();
+    ctx.moveTo(0, -7 * pulse);
+    ctx.lineTo(5 * pulse, 0);
+    ctx.lineTo(0, 7 * pulse);
+    ctx.lineTo(-5 * pulse, 0);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawBolts() {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const bolt of state.bolts) {
+    ctx.shadowColor = '#d9ff45';
+    ctx.shadowBlur = 16;
+    ctx.fillStyle = '#efff9b';
+    ctx.beginPath();
+    ctx.arc(bolt.x, bolt.y, bolt.radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  for (const bolt of state.hostileBolts) {
+    ctx.shadowColor = '#ff3b93';
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = '#ff6ab3';
+    ctx.beginPath();
+    ctx.arc(bolt.x, bolt.y, bolt.radius, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawEnemy(enemy) {
+  const spawnScale = Math.max(0.01, 1 - (1 - enemy.spawn) ** 3);
+  const bob = Math.sin(state.time * (enemy.type === 'moth' ? 5 : 2.8) + enemy.id) * (enemy.type === 'moth' ? 7 : 2.5);
+  const size = enemy.size * spawnScale;
+  drawShadow(enemy.x, enemy.y + 4, size * 0.7, 0.42 * spawnScale);
+  let filter = enemy.hitFlash > 0
+    ? 'brightness(2.4) saturate(0.3) drop-shadow(0 0 16px #d9ff45)'
+    : enemy.stunned > 0
+      ? 'saturate(0.55) brightness(1.25) drop-shadow(0 0 12px #d9ff45)'
+      : 'drop-shadow(0 8px 8px rgba(0,0,0,.42))';
+  const rotation = enemy.stunned > 0 ? Math.sin(state.time * 18 + enemy.id) * 0.05 : Math.sin(state.time * 2 + enemy.id) * 0.015;
+  drawSprite(images[enemy.image], enemy.x, enemy.y + bob, size, enemy.facing, spawnScale, filter, rotation);
+
+  if (enemy.hp < enemy.maxHp && enemy.type !== 'boss' && !enemy.dead) {
+    const width = Math.max(30, size * 0.62);
+    const y = enemy.y - size * 0.8;
+    ctx.fillStyle = 'rgba(8,3,13,.74)';
+    ctx.fillRect(enemy.x - width / 2, y, width, 5);
+    ctx.fillStyle = enemy.type === 'brute' ? '#ffb33e' : '#ff4c70';
+    ctx.fillRect(enemy.x - width / 2, y, width * clamp(enemy.hp / enemy.maxHp, 0, 1), 5);
+  }
+}
+
+function drawHero() {
+  const hero = state.hero;
+  if (!hero) return;
+  const speed = Math.hypot(hero.vx, hero.vy);
+  const bob = Math.sin(state.time * (speed > 12 ? 10 : 3.2)) * (speed > 12 ? 3.2 : 1.8);
+  const size = 105 * gameScale() * (hero.dashTime > 0 ? 1.08 : 1);
+  drawShadow(hero.x, hero.y + 7, size * 0.72, 0.5);
+  if (state.upgrades.shield > 0 || hero.shieldPulse > 0) {
+    ctx.save();
+    ctx.globalAlpha = 0.16 + state.upgrades.shield * 0.025 + hero.shieldPulse * 0.55;
+    ctx.strokeStyle = '#8ee8ff';
+    ctx.lineWidth = 3;
+    ctx.shadowColor = '#8ee8ff';
+    ctx.shadowBlur = 18;
+    ctx.beginPath();
+    ctx.ellipse(hero.x, hero.y - size * 0.24, size * 0.49, size * 0.57, 0, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+  const alpha = hero.invulnerable > 0 && Math.floor(state.time * 18) % 2 === 0 ? 0.56 : 1;
+  const filter = hero.dashTime > 0
+    ? 'brightness(1.3) drop-shadow(0 0 18px #bd82ed)'
+    : 'drop-shadow(0 10px 9px rgba(0,0,0,.5))';
+  drawSprite(images.hero, hero.x, hero.y + bob, size, hero.facing, alpha, filter, hero.dashTime > 0 ? hero.dashX * 0.08 : 0);
+
+  const companionAngle = state.time * 1.8;
+  const cx = hero.x + Math.cos(companionAngle) * size * 0.52;
+  const cy = hero.y - size * 0.62 + Math.sin(companionAngle * 1.25) * 9;
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  const glow = ctx.createRadialGradient(cx, cy, 0, cx, cy, 16 + state.companion * 0.08);
+  glow.addColorStop(0, 'rgba(244,255,166,.95)');
+  glow.addColorStop(0.34, 'rgba(185,255,63,.72)');
+  glow.addColorStop(1, 'rgba(157,247,45,0)');
+  ctx.fillStyle = glow;
+  ctx.beginPath();
+  ctx.arc(cx, cy, 18 + state.companion * 0.08, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawParticles() {
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  for (const particle of state.particles) {
+    ctx.globalAlpha = clamp(particle.life / particle.maxLife, 0, 1);
+    ctx.fillStyle = particle.color;
+    ctx.shadowColor = particle.color;
+    ctx.shadowBlur = 8;
+    ctx.beginPath();
+    ctx.arc(particle.x, particle.y, particle.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.restore();
+
+  for (const wave of state.shockwaves) {
+    ctx.save();
+    ctx.globalAlpha = clamp(wave.life * 1.8, 0, 0.8);
+    ctx.strokeStyle = wave.color;
+    ctx.lineWidth = 4;
+    ctx.shadowColor = wave.color;
+    ctx.shadowBlur = 14;
+    ctx.beginPath();
+    ctx.arc(wave.x, wave.y, wave.radius, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function drawArenaPulse() {
+  if (state.wavePulse <= 0 || state.mode !== 'playing') return;
+  const arena = arenaBounds();
+  const progress = 1 - state.wavePulse / 1.6;
+  ctx.save();
+  ctx.globalAlpha = Math.sin(progress * Math.PI) * 0.68;
+  ctx.strokeStyle = state.wave === 2 ? '#ffb33e' : '#d9ff45';
+  ctx.lineWidth = 5;
+  ctx.shadowColor = ctx.strokeStyle;
+  ctx.shadowBlur = 24;
+  ctx.beginPath();
+  ctx.ellipse(arena.x, arena.y, arena.rx * (0.25 + progress * 0.72), arena.ry * (0.25 + progress * 0.72), 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function draw() {
+  ctx.setTransform(viewport.dpr, 0, 0, viewport.dpr, 0, 0);
+  ctx.clearRect(0, 0, viewport.width, viewport.height);
+  const shakeX = state.shake > 0 && !prefersReducedMotion ? (Math.random() - 0.5) * state.shake : 0;
+  const shakeY = state.shake > 0 && !prefersReducedMotion ? (Math.random() - 0.5) * state.shake : 0;
+  ctx.save();
+  ctx.translate(shakeX, shakeY);
+  drawBackground();
+  drawArenaPulse();
+  drawPickups();
+  drawBolts();
+
+  if (state.hero) {
+    const drawables = state.enemies
+      .filter((enemy) => !enemy.dead)
+      .map((enemy) => ({ y: enemy.y, draw: () => drawEnemy(enemy) }));
+    drawables.push({ y: state.hero.y, draw: drawHero });
+    drawables.sort((a, b) => a.y - b.y);
+    for (const drawable of drawables) drawable.draw();
+  }
+  drawParticles();
+  ctx.restore();
+
+  if (state.damageFlash > 0) {
+    ctx.globalAlpha = state.damageFlash * 0.55;
+    const gradient = ctx.createRadialGradient(viewport.width / 2, viewport.height / 2, viewport.width * 0.18, viewport.width / 2, viewport.height / 2, viewport.width * 0.72);
+    gradient.addColorStop(0, 'rgba(255,76,112,0)');
+    gradient.addColorStop(1, 'rgba(255,38,84,1)');
     ctx.fillStyle = gradient;
-    ctx.fillRect(0, 0, viewWidth, viewHeight);
-
-    for (const particle of particles) {
-      const drift = reducedMotion ? 0 : Math.sin(state.elapsed * 0.35 + particle.phase) * 12;
-      const sx = ((particle.x - camera.x * particle.depth * 0.25 + drift) % (viewWidth + 80)) - 40;
-      const sy = ((particle.y - camera.y * particle.depth * 0.18) % (viewHeight + 80)) - 40;
-      ctx.globalAlpha = 0.18 + particle.depth * 0.23;
-      ctx.fillStyle = particle.depth > 0.75 ? palette.acid : palette.violet;
-      ctx.beginPath();
-      ctx.arc(sx, sy, particle.size, 0, Math.PI * 2);
-      ctx.fill();
-    }
+    ctx.fillRect(0, 0, viewport.width, viewport.height);
     ctx.globalAlpha = 1;
   }
+}
 
-  function drawVine(path, color = palette.plum, width = 18, glow = 0) {
-    ctx.save();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = width;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    if (glow) {
-      ctx.shadowColor = color;
-      ctx.shadowBlur = glow;
-    }
-    ctx.beginPath();
-    ctx.moveTo(path[0], path[1]);
-    for (let i = 2; i < path.length; i += 6) {
-      ctx.bezierCurveTo(path[i], path[i + 1], path[i + 2], path[i + 3], path[i + 4], path[i + 5]);
-    }
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  function drawPool(x, y, rx, ry, color) {
-    const gradient = ctx.createRadialGradient(x, y, 5, x, y, rx);
-    gradient.addColorStop(0, `${color}55`);
-    gradient.addColorStop(1, `${color}00`);
-    ctx.fillStyle = gradient;
-    ctx.beginPath();
-    ctx.ellipse(x, y, rx, ry, 0, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.strokeStyle = `${color}42`;
-    ctx.lineWidth = 2;
-    ctx.stroke();
-  }
-
-  function drawSignalNode(item, active, kind = 'round') {
-    const pulse = reducedMotion ? 1 : 1 + Math.sin(state.elapsed * 3 + item.x) * 0.08;
-    ctx.save();
-    ctx.translate(item.x, item.y);
-    ctx.globalAlpha = active ? 1 : 0.22;
-    ctx.shadowColor = item.color || palette.acid;
-    ctx.shadowBlur = active ? 30 : 4;
-    ctx.fillStyle = item.color || palette.acid;
-    ctx.strokeStyle = palette.cream;
-    ctx.lineWidth = active ? 2.4 : 1;
-    if (kind === 'diamond') {
-      const size = item.radius * pulse;
-      ctx.rotate(Math.PI / 4);
-      ctx.beginPath();
-      ctx.roundRect(-size * 0.62, -size * 0.62, size * 1.24, size * 1.24, 8);
-      ctx.fill();
-      ctx.stroke();
-    } else {
-      ctx.beginPath();
-      ctx.arc(0, 0, item.radius * pulse, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.stroke();
-    }
-    ctx.restore();
-  }
-
-  function drawBranch() {
-    const awake = state.branchAwake || state.phase !== 'approach';
-    ctx.save();
-    ctx.translate(branch.x, branch.y);
-    ctx.rotate(-0.24);
-    ctx.strokeStyle = awake ? palette.violet : '#5a3468';
-    ctx.lineWidth = 23;
-    ctx.lineCap = 'round';
-    ctx.shadowColor = awake ? palette.violet : palette.acid;
-    ctx.shadowBlur = awake ? 18 : 28;
-    ctx.beginPath();
-    ctx.moveTo(-62, 52);
-    ctx.bezierCurveTo(-26, 12, -42, -30, 2, -8);
-    ctx.bezierCurveTo(47, 14, 18, -57, 76, -72);
-    ctx.stroke();
-    ctx.strokeStyle = palette.acid;
-    ctx.lineWidth = 5;
-    ctx.globalAlpha = 0.7;
-    ctx.beginPath();
-    ctx.moveTo(-51, 45);
-    ctx.bezierCurveTo(-22, 14, -32, -18, 1, -2);
-    ctx.stroke();
-    ctx.restore();
-  }
-
-  function drawFork() {
-    const available = state.phase === 'fork' || (state.phase === 'fragments' && collected.size === 2);
-    const healedColor = state.healed ? palette.acid : state.outcome ? palette.danger : palette.violet;
-    ctx.save();
-    ctx.translate(fork.x, fork.y);
-    ctx.strokeStyle = available || state.phase === 'complete' ? healedColor : '#3b2647';
-    ctx.lineWidth = 18;
-    ctx.lineCap = 'round';
-    ctx.shadowColor = healedColor;
-    ctx.shadowBlur = available || state.phase === 'complete' ? 28 : 0;
-    ctx.beginPath();
-    ctx.moveTo(0, 72);
-    ctx.lineTo(0, -6);
-    ctx.moveTo(0, 8);
-    ctx.quadraticCurveTo(-20, -28, -62, -52);
-    ctx.moveTo(0, 8);
-    ctx.quadraticCurveTo(24, -34, 72, -48);
-    ctx.stroke();
-    ctx.fillStyle = healedColor;
-    ctx.globalAlpha = state.phase === 'complete' ? 0.9 : available ? 0.7 : 0.2;
-    for (const [x, y, r] of [[-69, -58, 19], [-42, -47, 16], [78, -53, 20], [48, -40, 17]]) {
-      ctx.beginPath();
-      ctx.arc(x, y, r, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.restore();
-  }
-
-  function drawWorld() {
-    ctx.save();
-    ctx.translate(viewWidth / 2 - camera.x, viewHeight / 2 - camera.y);
-
-    drawPool(470, 345, 260, 125, '#6bd4ff');
-    drawPool(1425, 1100, 360, 160, '#853fc0');
-    drawPool(1900, 290, 290, 120, '#c7ef3d');
-
-    drawVine([90, 1110, 360, 970, 530, 840, 840, 660], '#4b245d', 30, 5);
-    drawVine([840, 660, 1030, 520, 1340, 670, 1670, 665], state.healed ? palette.acid : '#71318d', 22, state.healed ? 18 : 7);
-    drawVine([840, 660, 1010, 780, 1080, 980, 1225, 890], '#8b4b31', 13, 5);
-    drawVine([840, 660, 930, 520, 1020, 480, 1115, 455], '#345d72', 13, 5);
-    drawVine([1670, 665, 1870, 520, 1990, 720, 2140, 610], state.healed ? '#70942b' : '#372342', 24, state.healed ? 15 : 0);
-
-    drawBranch();
-    const branchActive = state.phase === 'approach';
-    if (branchActive) {
-      drawSignalNode({ ...branch, color: palette.acid, radius: 18 }, true);
-    }
-
-    for (const fragment of fragments) {
-      const isCollected = collected.has(fragment.id);
-      if (state.phase !== 'approach' && !isCollected) drawSignalNode(fragment, true, 'diamond');
-      if (isCollected) {
-        ctx.save();
-        ctx.globalAlpha = 0.28;
-        drawSignalNode(fragment, false, 'diamond');
-        ctx.restore();
-      }
-    }
-
-    drawFork();
-
-    if (state.waypoint) {
-      const ring = reducedMotion ? 18 : 18 + Math.sin(state.elapsed * 5) * 5;
-      ctx.strokeStyle = palette.violet;
-      ctx.lineWidth = 3;
-      ctx.globalAlpha = 0.8;
-      ctx.beginPath();
-      ctx.arc(state.waypoint.x, state.waypoint.y, ring, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.globalAlpha = 1;
-    }
-
-    drawCompanion();
-    drawPlayer();
-    ctx.restore();
-
-    drawRouteArrow();
-  }
-
-  function drawPlayer() {
-    ctx.save();
-    ctx.translate(player.x, player.y);
-    ctx.rotate(player.facing);
-    ctx.shadowColor = palette.cream;
-    ctx.shadowBlur = 22;
-    const gradient = ctx.createRadialGradient(-6, -8, 2, 0, 0, 28);
-    gradient.addColorStop(0, palette.cream);
-    gradient.addColorStop(0.42, palette.violet);
-    gradient.addColorStop(1, palette.plum);
-    ctx.fillStyle = gradient;
-    ctx.beginPath();
-    ctx.arc(0, 0, player.radius, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.fillStyle = palette.acid;
-    ctx.beginPath();
-    ctx.moveTo(28, 0);
-    ctx.lineTo(11, -7);
-    ctx.lineTo(11, 7);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-  }
-
-  function drawCompanion() {
-    const bob = reducedMotion ? 0 : Math.sin(state.elapsed * 4) * 5;
-    ctx.save();
-    ctx.translate(companion.x, companion.y + bob);
-    ctx.shadowColor = palette.violet;
-    ctx.shadowBlur = 22;
-    const circles = [
-      [-10, -4, 12, palette.violet],
-      [10, -4, 12, palette.grape],
-      [0, 12, 12, palette.plum],
-      [0, -18, 9, palette.acid],
-    ];
-    for (const [x, y, radius, color] of circles) {
-      ctx.fillStyle = color;
-      ctx.beginPath();
-      ctx.arc(x, y, radius, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    ctx.fillStyle = palette.ink;
-    ctx.beginPath();
-    ctx.arc(-5, -5, 2, 0, Math.PI * 2);
-    ctx.arc(6, -5, 2, 0, Math.PI * 2);
-    ctx.fill();
-    ctx.restore();
-  }
-
-  function drawRouteArrow() {
-    const target = currentTarget();
-    if (!target) return;
-    const screenX = target.x - camera.x + viewWidth / 2;
-    const screenY = target.y - camera.y + viewHeight / 2;
-    const margin = 124;
-    const isOffscreen = screenX < margin || screenX > viewWidth - margin || screenY < 130 || screenY > viewHeight - margin;
-    if (!isOffscreen) return;
-
-    const centerX = viewWidth / 2;
-    const centerY = viewHeight / 2;
-    const angle = Math.atan2(screenY - centerY, screenX - centerX);
-    const radiusX = Math.max(80, viewWidth / 2 - margin);
-    const radiusY = Math.max(90, viewHeight / 2 - margin);
-    const scale = Math.min(
-      radiusX / Math.max(0.001, Math.abs(Math.cos(angle))),
-      radiusY / Math.max(0.001, Math.abs(Math.sin(angle))),
-    );
-    const x = centerX + Math.cos(angle) * scale;
-    const y = centerY + Math.sin(angle) * scale;
-
-    ctx.save();
-    ctx.translate(x, y);
-    ctx.rotate(angle);
-    ctx.globalAlpha = 0.75 + state.routeFlash * 0.25;
-    ctx.shadowColor = palette.acid;
-    ctx.shadowBlur = 18;
-    ctx.fillStyle = palette.acid;
-    ctx.beginPath();
-    ctx.moveTo(18, 0);
-    ctx.lineTo(-13, -12);
-    ctx.lineTo(-7, 0);
-    ctx.lineTo(-13, 12);
-    ctx.closePath();
-    ctx.fill();
-    ctx.restore();
-  }
-
-  function drawMinimap() {
-    const w = minimap.width;
-    const h = minimap.height;
-    mapCtx.clearRect(0, 0, w, h);
-    mapCtx.fillStyle = 'rgba(7, 9, 15, 0.92)';
-    mapCtx.fillRect(0, 0, w, h);
-
-    const sx = w / WORLD.width;
-    const sy = h / WORLD.height;
-    const point = (item) => ({ x: item.x * sx, y: item.y * sy });
-    const points = [START, branch, fragments[0], fragments[1], fork];
-    mapCtx.strokeStyle = state.healed ? palette.acid : '#71418e';
-    mapCtx.lineWidth = 5;
-    mapCtx.lineCap = 'round';
-    mapCtx.beginPath();
-    points.forEach((item, index) => {
-      const p = point(item);
-      if (index === 0) mapCtx.moveTo(p.x, p.y);
-      else mapCtx.lineTo(p.x, p.y);
-    });
-    mapCtx.stroke();
-
-    for (const item of fragments) {
-      const p = point(item);
-      mapCtx.fillStyle = collected.has(item.id) ? 'rgba(255,255,255,.22)' : item.color;
-      mapCtx.fillRect(p.x - 4, p.y - 4, 8, 8);
-    }
-
-    const target = currentTarget();
-    if (target) {
-      const p = point(target);
-      mapCtx.strokeStyle = palette.acid;
-      mapCtx.lineWidth = 3;
-      mapCtx.beginPath();
-      mapCtx.arc(p.x, p.y, 9 + Math.sin(state.elapsed * 4) * 2, 0, Math.PI * 2);
-      mapCtx.stroke();
-    }
-
-    const playerPoint = point(player);
-    mapCtx.fillStyle = palette.cream;
-    mapCtx.shadowColor = palette.cream;
-    mapCtx.shadowBlur = 8;
-    mapCtx.beginPath();
-    mapCtx.arc(playerPoint.x, playerPoint.y, 6, 0, Math.PI * 2);
-    mapCtx.fill();
-    mapCtx.shadowBlur = 0;
-  }
-
-  function draw() {
-    drawBackground();
-    drawWorld();
-    drawMinimap();
-  }
-
-  function loop(now) {
-    const dt = Math.min(0.04, (now - lastTime) / 1000 || 0);
-    lastTime = now;
-    state.frame += 1;
+function frame(now) {
+  const dt = Math.min(0.034, Math.max(0, (now - lastFrame) / 1000));
+  lastFrame = now;
+  if (state.mode !== 'loading') {
+    if (state.mode !== 'playing') updateEffects(dt);
     update(dt);
     draw();
-    requestAnimationFrame(loop);
   }
+  requestAnimationFrame(frame);
+}
 
-  function setupSound() {
-    ui.soundToggle.addEventListener('click', () => {
-      if (audio) {
-        audio.context.close();
-        audio = null;
-        ui.soundToggle.textContent = 'SOUND OFF';
-        ui.soundToggle.setAttribute('aria-pressed', 'false');
-        ui.soundToggle.setAttribute('aria-label', 'Turn ambient sound on');
-        return;
-      }
+function setJoystick(event) {
+  const rect = joystickZone.getBoundingClientRect();
+  const max = 44;
+  const dx = event.clientX - input.joyOriginX;
+  const dy = event.clientY - input.joyOriginY;
+  const length = Math.hypot(dx, dy);
+  const scale = length > max ? max / length : 1;
+  const x = dx * scale;
+  const y = dy * scale;
+  input.joyX = x / max;
+  input.joyY = y / max;
+  joystickKnob.style.transform = `translate(${x}px, ${y}px)`;
+  const localX = input.joyOriginX - rect.left;
+  const localY = input.joyOriginY - rect.top;
+  joystickBase.style.left = `${clamp(localX - 63, 8, rect.width - 134)}px`;
+  joystickBase.style.bottom = `${clamp(rect.height - localY - 63, 8, rect.height - 134)}px`;
+}
 
-      const AudioContext = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContext) {
-        showToast('Ambient sound is not available in this browser.');
-        return;
-      }
-      const context = new AudioContext();
-      const master = context.createGain();
-      master.gain.value = 0.035;
-      master.connect(context.destination);
+joystickZone.addEventListener('pointerdown', (event) => {
+  if (state.mode !== 'playing' || state.paused || input.joystickId !== null) return;
+  input.joystickId = event.pointerId;
+  input.joyOriginX = event.clientX;
+  input.joyOriginY = event.clientY;
+  input.tapTarget = null;
+  joystickZone.setPointerCapture(event.pointerId);
+  joystickZone.classList.add('is-active');
+  setJoystick(event);
+  event.preventDefault();
+});
 
-      const filter = context.createBiquadFilter();
-      filter.type = 'lowpass';
-      filter.frequency.value = 440;
-      filter.Q.value = 0.7;
-      filter.connect(master);
+joystickZone.addEventListener('pointermove', (event) => {
+  if (event.pointerId !== input.joystickId) return;
+  setJoystick(event);
+  event.preventDefault();
+});
 
-      const oscillators = [55, 82.4, 110].map((frequency, index) => {
-        const oscillator = context.createOscillator();
-        const gain = context.createGain();
-        oscillator.type = index === 0 ? 'sine' : 'triangle';
-        oscillator.frequency.value = frequency;
-        gain.gain.value = index === 0 ? 0.5 : 0.16;
-        oscillator.connect(gain);
-        gain.connect(filter);
-        oscillator.start();
-        return oscillator;
-      });
-      audio = { context, master, filter, oscillators };
-      ui.soundToggle.textContent = 'SOUND ON';
-      ui.soundToggle.setAttribute('aria-pressed', 'true');
-      ui.soundToggle.setAttribute('aria-label', 'Turn ambient sound off');
-    });
+function releaseJoystick(event) {
+  if (event.pointerId !== input.joystickId) return;
+  input.joystickId = null;
+  input.joyX = 0;
+  input.joyY = 0;
+  joystickZone.classList.remove('is-active');
+  joystickKnob.style.transform = '';
+  joystickBase.style.left = '';
+  joystickBase.style.bottom = '';
+}
+
+joystickZone.addEventListener('pointerup', releaseJoystick);
+joystickZone.addEventListener('pointercancel', releaseJoystick);
+
+canvas.addEventListener('pointerdown', (event) => {
+  if (state.mode !== 'playing' || state.paused) return;
+  const rect = canvas.getBoundingClientRect();
+  input.tapTarget = { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  keepInArena(input.tapTarget, 0.86);
+});
+
+attackButton.addEventListener('pointerdown', (event) => {
+  event.preventDefault();
+  attackButton.setPointerCapture(event.pointerId);
+  input.attackHeld = true;
+  attackButton.classList.add('is-held');
+  attack();
+});
+
+function releaseAttack() {
+  input.attackHeld = false;
+  attackButton.classList.remove('is-held');
+}
+
+attackButton.addEventListener('pointerup', releaseAttack);
+attackButton.addEventListener('pointercancel', releaseAttack);
+attackButton.addEventListener('lostpointercapture', releaseAttack);
+dashButton.addEventListener('click', dash);
+companionButton.addEventListener('click', companionBurst);
+
+document.querySelectorAll('.upgrade-card').forEach((button) => {
+  button.addEventListener('click', () => chooseUpgrade(button.dataset.upgrade));
+});
+
+startButton.addEventListener('click', () => {
+  initializeSound();
+  resetGame();
+});
+
+restartButton.addEventListener('click', () => {
+  initializeSound();
+  resetGame();
+});
+
+pauseButton.addEventListener('click', () => {
+  if (state.paused) resumeBattle();
+  else pauseBattle();
+});
+
+resumeButton.addEventListener('click', resumeBattle);
+
+soundButton.addEventListener('click', () => {
+  state.sound = !state.sound;
+  soundButton.setAttribute('aria-pressed', String(state.sound));
+  soundButton.setAttribute('aria-label', state.sound ? 'Turn sound off' : 'Turn sound on');
+  if (masterGain && audioContext) masterGain.gain.setTargetAtTime(state.sound ? 0.18 : 0, audioContext.currentTime, 0.03);
+  if (state.sound) {
+    initializeSound();
+    tone(440, 0.12, 'sine', 0.08, 660);
   }
+});
 
-  window.addEventListener('resize', resize);
-  window.addEventListener('keydown', (event) => {
-    if (['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Space'].includes(event.code)) {
-      event.preventDefault();
-    }
-    keys.add(event.code);
-    if ((event.code === 'Space' || event.code === 'Enter') && !state.modalOpen) handleAction();
-    if (event.code === 'KeyM' && !state.modalOpen) routeDetails();
-    if (event.code === 'Escape') {
-      if (state.modalOpen) closeSheet();
-      else closeCompanion();
-    }
-  });
-  window.addEventListener('keyup', (event) => keys.delete(event.code));
+window.addEventListener('keydown', (event) => {
+  const key = event.key.toLowerCase();
+  if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown', 'w', 'a', 's', 'd'].includes(key)) {
+    input.keys.add(key);
+    event.preventDefault();
+  }
+  if (key === ' ' || key === 'enter') {
+    if (state.mode === 'start' || state.mode === 'ended') {
+      initializeSound();
+      resetGame();
+    } else attack();
+    event.preventDefault();
+  }
+  if (key === 'shift') dash();
+  if (key === 'e') companionBurst();
+  if (key === 'escape') {
+    if (state.paused) resumeBattle();
+    else pauseBattle();
+  }
+});
 
-  canvas.addEventListener('pointerdown', (event) => {
-    if (state.modalOpen || state.companionOpen) return;
-    if (event.pointerType === 'mouse' && event.button !== 0) return;
-    const rect = canvas.getBoundingClientRect();
-    const worldX = event.clientX - rect.left + camera.x - viewWidth / 2;
-    const worldY = event.clientY - rect.top + camera.y - viewHeight / 2;
-    state.waypoint = {
-      x: clamp(worldX, 70, WORLD.width - 70),
-      y: clamp(worldY, 70, WORLD.height - 70),
+window.addEventListener('keyup', (event) => input.keys.delete(event.key.toLowerCase()));
+window.addEventListener('resize', resize, { passive: true });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden && state.mode === 'playing' && !state.paused) pauseBattle();
+});
+
+async function loadImages() {
+  const entries = Object.entries(imagePaths);
+  await Promise.all(entries.map(([key, source]) => new Promise((resolve, reject) => {
+    const image = new Image();
+    image.onload = () => {
+      images[key] = image;
+      resolve();
     };
-  });
+    image.onerror = () => reject(new Error(`Could not load ${source}`));
+    image.src = source;
+  })));
+}
 
-  ui.actionButton.addEventListener('click', handleAction);
-  ui.mapButton.addEventListener('click', routeDetails);
-  ui.companionButton.addEventListener('click', toggleCompanion);
-  ui.closeCompanion.addEventListener('click', closeCompanion);
-  ui.backdrop.addEventListener('click', closeSheet);
-  document.querySelectorAll('[data-ability]').forEach((button) => {
-    button.addEventListener('click', () => {
-      const message = abilityMessage(button.dataset.ability);
-      ui.companionThought.textContent = message;
-      showToast(message, 3600);
-      if (button.dataset.ability === 'scan') state.routeFlash = 1;
-      vibrate(14);
-    });
-  });
+resize();
+requestAnimationFrame(frame);
 
-  setupJoystick();
-  setupSound();
-  resize();
-  ui.progressBadge.hidden = !readCompleted();
-  updateHud();
-  requestAnimationFrame(loop);
-})();
+loadImages()
+  .then(() => {
+    state.mode = 'start';
+    loadingScreen.classList.add('is-ready');
+    startScreen.hidden = false;
+    setTimeout(() => {
+      loadingScreen.hidden = true;
+    }, 380);
+    draw();
+    startButton.focus({ preventScroll: true });
+    announce('Arena ready. Press the large play button.');
+  })
+  .catch(() => {
+    state.mode = 'start';
+    loadingScreen.hidden = true;
+    startScreen.hidden = false;
+    announce('Some arena art could not load. Reload to try again.');
+  });

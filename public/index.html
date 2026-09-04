@@ -3,114 +3,182 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#120d1b" />
+    <meta name="theme-color" content="#090611" />
     <meta
       name="description"
-      content="Grape Gripe turns a one-sided story into a place you can explore."
+      content="Grape Gripe is a graphics-first mobile battle arena set inside a corrupted living vineyard."
     />
-    <title>Grape Gripe — Playable Branch</title>
+    <title>Grape Gripe — The Arena</title>
+    <link rel="preload" href="./assets/arena.webp" as="image" />
+    <link rel="preload" href="./assets/grape-fighter.webp" as="image" />
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <main id="game-shell" aria-label="Grape Gripe playable branch">
+    <main id="game-shell" aria-label="Grape Gripe battle arena">
       <canvas
         id="world"
-        aria-label="A top-down memory landscape. Move with the joystick or arrow keys and follow the objective."
+        aria-label="A top-down battle arena. Move with the left control. Attack and use powers with the buttons on the right."
       ></canvas>
 
-      <section class="hud" aria-label="Game status">
-        <div class="status-cluster">
-          <p class="wordmark">GRAPE.GRIPE</p>
-          <p id="location-label" class="location-label">THE ROOTWAY</p>
-          <p id="objective-label" class="objective-label">Reach the pulsing branch</p>
-          <p id="route-label" class="route-label">Follow the acid-green signal</p>
-        </div>
+      <div id="loading-screen" class="loading-screen" aria-live="polite">
+        <div class="loading-seed" aria-hidden="true"><i></i><i></i><i></i></div>
+        <span class="sr-only">Loading the arena</span>
+      </div>
 
-        <button id="map-button" class="map-button" type="button" aria-label="Open route details">
-          <canvas id="minimap" width="216" height="152" aria-hidden="true"></canvas>
-          <span id="map-caption">BRANCH · 0m</span>
+      <section id="start-screen" class="start-screen" hidden>
+        <div class="brand-lockup" aria-hidden="true">
+          <span>GRAPE</span><i></i><span>GRIPE</span>
+        </div>
+        <img
+          class="start-fighter"
+          src="./assets/grape-fighter.webp"
+          alt=""
+          width="606"
+          height="620"
+        />
+        <button id="start-button" class="start-button" type="button" aria-label="Start battle">
+          <svg viewBox="0 0 100 100" aria-hidden="true">
+            <path d="M38 25 76 50 38 75Z" />
+          </svg>
         </button>
+        <div class="start-waves" aria-hidden="true">
+          <i></i><i></i><i class="boss-dot"></i>
+        </div>
       </section>
 
-      <div id="progress-badge" class="progress-badge" hidden>
-        <span aria-hidden="true">◆</span>
-        <span>1 branch untangled</span>
+      <section id="hud" class="hud" aria-label="Battle status" hidden>
+        <div class="health-cluster" aria-label="Health">
+          <svg viewBox="0 0 64 64" aria-hidden="true">
+            <path d="M32 55C18 45 7 36 7 22 7 11 20 6 32 17 44 6 57 11 57 22c0 14-11 23-25 33Z" />
+          </svg>
+          <div class="health-track"><i id="health-fill"></i></div>
+        </div>
+
+        <div id="wave-track" class="wave-track" aria-label="Arena progress">
+          <i class="wave-pip" data-wave="0"><span></span></i>
+          <i class="wave-line"></i>
+          <i class="wave-pip" data-wave="1"><span></span></i>
+          <i class="wave-line"></i>
+          <i class="wave-pip boss" data-wave="2">
+            <svg viewBox="0 0 40 40" aria-hidden="true">
+              <path d="m6 13 8 7 6-12 6 12 8-7-3 19H9Z" />
+            </svg>
+          </i>
+        </div>
+
+        <div class="score-cluster" aria-label="Energy collected">
+          <svg viewBox="0 0 48 48" aria-hidden="true"><path d="m24 3 8 13 13 8-13 8-8 13-8-13-13-8 13-8Z" /></svg>
+          <strong id="energy-count">0</strong>
+        </div>
+
+        <div id="boss-health" class="boss-health" hidden aria-label="Boss health">
+          <svg viewBox="0 0 40 40" aria-hidden="true"><path d="m6 13 8 7 6-12 6 12 8-7-3 19H9Z" /></svg>
+          <div><i id="boss-health-fill"></i></div>
+        </div>
+      </section>
+
+      <button id="sound-button" class="utility-button sound-button" type="button" aria-label="Turn sound off" aria-pressed="true" hidden>
+        <svg class="sound-on" viewBox="0 0 48 48" aria-hidden="true">
+          <path d="M7 19h8l10-9v28l-10-9H7Z" />
+          <path d="M31 17c4 4 4 10 0 14M36 12c7 7 7 17 0 24" />
+        </svg>
+        <svg class="sound-off" viewBox="0 0 48 48" aria-hidden="true">
+          <path d="M7 19h8l10-9v28l-10-9H7Z" />
+          <path d="m32 18 11 12m0-12L32 30" />
+        </svg>
+      </button>
+
+      <button id="pause-button" class="utility-button pause-button" type="button" aria-label="Pause battle" hidden>
+        <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M14 10h8v28h-8zm12 0h8v28h-8z" /></svg>
+      </button>
+
+      <div id="tutorial-focus" class="tutorial-focus" hidden aria-hidden="true">
+        <i></i><i></i><i></i>
       </div>
 
-      <div id="coachmark" class="coachmark" role="status">
-        <strong>Joystick to drift.</strong>
-        <span>Minimap to wonder.</span>
-      </div>
-
-      <div id="joystick-zone" class="joystick-zone" aria-label="Movement joystick">
+      <div id="joystick-zone" class="joystick-zone" hidden aria-label="Movement control">
         <div id="joystick-base" class="joystick-base" aria-hidden="true">
+          <svg viewBox="0 0 100 100"><path d="M50 9 40 22h20ZM91 50 78 40v20ZM50 91l10-13H40ZM9 50l13 10V40Z" /></svg>
           <div id="joystick-knob" class="joystick-knob"></div>
         </div>
-        <span class="joystick-label">DRIFT</span>
       </div>
 
-      <div class="action-cluster">
-        <button
-          id="companion-button"
-          class="companion-button"
-          type="button"
-          aria-expanded="false"
-          aria-controls="companion-panel"
-        >
-          <span class="companion-icon" aria-hidden="true"><i></i><i></i><i></i></span>
-          <span>COMPANION</span>
+      <div id="action-cluster" class="action-cluster" hidden>
+        <button id="companion-button" class="ability-button companion-button" type="button" aria-label="Companion burst" disabled>
+          <span class="cooldown-ring" aria-hidden="true"></span>
+          <svg viewBox="0 0 64 64" aria-hidden="true">
+            <path d="M32 10c-13 0-23 10-28 22 5 12 15 22 28 22s23-10 28-22C55 20 45 10 32 10Z" />
+            <circle cx="32" cy="32" r="10" />
+            <circle cx="35" cy="29" r="3" />
+          </svg>
         </button>
-        <button id="action-button" class="action-button" type="button" disabled>
-          <span class="action-pulse" aria-hidden="true"></span>
-          <span id="action-label">MOVE CLOSER</span>
+
+        <button id="dash-button" class="ability-button dash-button" type="button" aria-label="Dash">
+          <span class="cooldown-ring" aria-hidden="true"></span>
+          <svg viewBox="0 0 64 64" aria-hidden="true">
+            <path d="M10 42c11 0 18-5 25-15l5-7 14 2-7 12 8 5-15 5-6 10-8-4 4-9c-7 5-13 7-20 7Z" />
+          </svg>
+        </button>
+
+        <button id="attack-button" class="attack-button" type="button" aria-label="Attack">
+          <span class="attack-glow" aria-hidden="true"></span>
+          <svg viewBox="0 0 84 84" aria-hidden="true">
+            <path d="M22 58c-5-6-4-14 1-19l4-4V20c0-4 6-4 6 0v10-14c0-4 6-4 6 0v14-17c0-4 6-4 6 0v18-14c0-4 6-4 6 0v20l4-8c2-4 8-1 6 4l-7 17c-3 7-8 15-17 18-8 2-14-3-19-10Z" />
+          </svg>
         </button>
       </div>
 
-      <aside id="companion-panel" class="companion-panel" hidden>
-        <div class="panel-heading">
-          <div>
-            <p class="eyebrow">YOUR COMPANION</p>
-            <h2>Look twice.</h2>
-          </div>
-          <button id="close-companion" class="icon-button" type="button" aria-label="Close companion panel">×</button>
+      <section id="upgrade-screen" class="upgrade-screen" hidden aria-label="Choose a power">
+        <div class="upgrade-halo" aria-hidden="true"></div>
+        <div class="upgrade-grid">
+          <button class="upgrade-card power" type="button" data-upgrade="power" aria-label="Stronger attacks">
+            <svg viewBox="0 0 84 84" aria-hidden="true">
+              <path d="m42 5 8 20 21-7-11 18 18 11-22 3 2 22-16-15-16 15 2-22-22-3 18-11-11-18 21 7Z" />
+            </svg>
+            <span class="level-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          </button>
+          <button class="upgrade-card speed" type="button" data-upgrade="speed" aria-label="Faster movement and dashing">
+            <svg viewBox="0 0 84 84" aria-hidden="true">
+              <path d="M7 47c14 0 24-6 32-21l8-14 22 4-11 18 14 7-24 8-9 18-13-7 7-14c-10 7-18 10-26 10Z" />
+            </svg>
+            <span class="level-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          </button>
+          <button class="upgrade-card shield" type="button" data-upgrade="shield" aria-label="More health and protection">
+            <svg viewBox="0 0 84 84" aria-hidden="true">
+              <path d="M42 6 71 17v21c0 19-12 32-29 40C25 70 13 57 13 38V17Z" />
+              <path d="m27 41 10 10 21-23" />
+            </svg>
+            <span class="level-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+          </button>
         </div>
-        <p id="companion-thought" class="companion-thought">
-          Something happened. Meaning grew around it. Let’s find both.
-        </p>
-        <div class="ability-grid" role="group" aria-label="Companion abilities">
-          <button class="ability-button" type="button" data-ability="scan">
-            <strong>Scan</strong><span>Reveal the useful clue</span>
-          </button>
-          <button class="ability-button" type="button" data-ability="reframe">
-            <strong>Reframe</strong><span>Try another reading</span>
-          </button>
-          <button class="ability-button" type="button" data-ability="ask">
-            <strong>Ask</strong><span>Find the missing question</span>
-          </button>
-        </div>
-      </aside>
-
-      <div id="sheet-backdrop" class="sheet-backdrop" hidden></div>
-      <section
-        id="story-sheet"
-        class="story-sheet"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="sheet-title"
-        hidden
-      >
-        <div class="sheet-handle" aria-hidden="true"></div>
-        <div id="sheet-content"></div>
       </section>
 
-      <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+      <section id="pause-screen" class="pause-screen" hidden aria-label="Battle paused">
+        <button id="resume-button" class="round-overlay-button" type="button" aria-label="Resume battle">
+          <svg viewBox="0 0 100 100" aria-hidden="true"><path d="M38 25 76 50 38 75Z" /></svg>
+        </button>
+      </section>
 
-      <button id="sound-toggle" class="sound-toggle" type="button" aria-pressed="false" aria-label="Turn ambient sound on">
-        SOUND OFF
-      </button>
+      <section id="end-screen" class="end-screen" hidden aria-live="polite">
+        <div id="end-emblem" class="end-emblem" aria-hidden="true">
+          <svg class="crown-emblem" viewBox="0 0 120 120"><path d="m17 38 25 20 18-39 18 39 25-20-10 59H27Z" /></svg>
+          <svg class="broken-emblem" viewBox="0 0 120 120"><path d="M60 9 93 29l15 36-20 35-40 11-33-25L12 47l27-31Z" /><path d="m62 12-13 34 18 10-21 50" /></svg>
+        </div>
+        <div class="final-score" aria-label="Final energy score">
+          <svg viewBox="0 0 48 48" aria-hidden="true"><path d="m24 3 8 13 13 8-13 8-8 13-8-13-13-8 13-8Z" /></svg>
+          <strong id="final-score">0</strong>
+        </div>
+        <button id="restart-button" class="round-overlay-button restart-button" type="button" aria-label="Battle again">
+          <svg viewBox="0 0 100 100" aria-hidden="true">
+            <path d="M79 30V11L68 22a35 35 0 1 0 8 48l-12-8a21 21 0 1 1-5-29L45 47h34Z" />
+          </svg>
+        </button>
+      </section>
+
+      <p id="live-status" class="sr-only" aria-live="polite"></p>
     </main>
 
-    <noscript>This playable branch needs JavaScript enabled.</noscript>
+    <noscript>This game needs JavaScript enabled.</noscript>
     <script src="./game.js" defer></script>
   </body>
 </html>
