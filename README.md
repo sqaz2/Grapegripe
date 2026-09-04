@@ -1,19 +1,18 @@
 # Grape Gripe
 
-**Follow the story. Find the real gripe.**
+Grape Gripe is a graphics-first mobile battle arena inside a corrupted, bioluminescent vineyard. The game communicates through movement, colour, sound, icons, silhouettes, enemy behavior, and haptics; reading is optional.
 
-Grape Gripe is a mobile-first detective game built from whatever is bothering you. This repository begins with **Playable Branch**, a hand-authored vertical slice used to prove the movement, navigation, companion, story-fragment, and choice mechanics before personal AI generation is added.
+## The playable arena
 
-## What is playable
-
-- Floating touch joystick with eased drift
-- Tap-to-move and WASD/arrow-key fallbacks
-- Companion follow behavior and Scan / Reframe / Ask abilities
-- Always-visible objective, destination arrow, and minimap
-- One complete case: inspect the branch, collect **Seen** and **Assumed**, then choose at the fork
-- Three endings with visible world consequences
-- Local completion badge and optional ambient sound
-- Responsive portrait-first interface with large touch targets and safe-area support
+- Floating phone joystick plus tap-to-move
+- Large attack, dash, and companion-burst controls
+- Four illustrated enemy classes with distinct behavior
+- Three escalating waves and a boss encounter
+- Auto-targeted attacks, enemy projectiles, collisions, pickups, health, cooldowns, and screen feedback
+- Icon-led power choices between waves
+- Win, defeat, replay, pausing, optional sound, haptics, and saved best score
+- Keyboard controls: WASD/arrows, Space, Shift, E, and Escape
+- Responsive safe-area layout and reduced-motion support
 
 ## Run locally
 
@@ -31,8 +30,8 @@ Then open `http://localhost:4173`.
 npm test
 ```
 
-The project has no production dependencies or build step. Cloudflare can serve `public` directly. The included `wrangler.jsonc` also supports a static-assets deployment.
+The game has no production dependencies or build step. Cloudflare can serve `public` directly using the included `wrangler.jsonc` configuration.
 
-## Product boundary
+## Current product boundary
 
-This first slice deliberately excludes personal AI input, accounts, public feeds, unrestricted NPC chat, procedural worlds, combat, economy systems, and real-time multiplayer. The next gate is whether the authored branch is enjoyable and understandable on a real phone.
+This release is a complete authored arena run. Future versions can add more battlegrounds, fighters, enemy patterns, upgrade combinations, personal companion behavior, and shareable challenge modes without replacing the core visual combat loop.
