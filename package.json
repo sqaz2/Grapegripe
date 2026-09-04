@@ -1,0 +1,12 @@
+{
+  "name": "grapegripe",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The first playable branch of Grape Gripe.",
+  "scripts": {
+    "test": "node scripts/validate.mjs"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
