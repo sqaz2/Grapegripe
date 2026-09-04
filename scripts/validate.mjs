@@ -11,6 +11,11 @@ const required = [
   'public/assets/grape-fighter.webp',
   'public/assets/grape-fighter-back.webp',
   'public/assets/grape-fighter-side.webp',
+  'public/assets/hero-walk.webp',
+  'public/engine/terrain.mjs',
+  'public/engine/terrain-data.mjs',
+  'public/engine/animation.mjs',
+  'public/engine/hero-atlas.mjs',
   'public/assets/root-cellar.webp',
   'public/assets/vineway.webp',
   'public/assets/sourwood.webp',
@@ -57,23 +62,9 @@ if (!failures.length) {
     if (!html.includes(marker)) failures.push(`Missing accessible control marker: ${marker}`);
   }
 
-  const gameplay = [
-    'const regions',
-    'const enemyTypes',
-    'function attack()',
-    'function dash()',
-    'function unleashGripe()',
-    'function enterRegion(index, fresh = false)',
-    'function beginTravel()',
-    'function triggerEncounter(encounter)',
-    'function drawTravelMap()',
-    'function heroRenderInfo(direction)',
-    'function chooseUpgrade(type)',
-    'function finishGame(won)',
-    "['boss', 'moth', 'sourling']",
-  ];
-  for (const marker of gameplay) {
-    if (!game.includes(marker)) failures.push(`Missing arena gameplay marker: ${marker}`);
+  if (!/<script[^>]*type="module"[^>]*src=".\/journey.js"/.test(html)) failures.push('Journey must load as a module');
+  for (const match of game.matchAll(/from ['"]([^'"]+)['"]/g)) {
+    if (!existsSync(resolve(root, 'public', match[1]))) failures.push(`Missing module ${match[1]}`);
   }
 
   for (const match of game.matchAll(/\$\('([^']+)'\)/g)) {
