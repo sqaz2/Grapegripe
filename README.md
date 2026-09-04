@@ -1,17 +1,20 @@
 # Grape Gripe
 
-Grape Gripe is a graphics-first mobile battle arena inside a corrupted, bioluminescent vineyard. The game communicates through movement, colour, sound, icons, silhouettes, enemy behavior, and haptics; reading is optional.
+Grape Gripe is a graphics-first mobile action journey through a corrupted, bioluminescent vineyard. The game communicates through movement, colour, sound, icons, silhouettes, enemy behavior, and haptics; reading is optional.
 
-## The playable arena
+## The playable journey
 
-- Floating phone joystick plus tap-to-move
-- Large attack, dash, and companion-burst controls
+- Four large scrolling regions: Root Cellar, Vineway, Press Pit, and Sourwood
+- Eight-direction movement with matching front, rear, side, and diagonal hero poses
+- Floating phone joystick with large attack, dash, and ultimate controls
 - Four illustrated enemy classes with distinct behavior
-- Three escalating waves and a boss encounter
+- Encounter gates, optional secrets, region transitions, and a visual world map
+- Three-hit grape combo ending in an explosive heavy shot
+- The Last Straw meter and screen-clearing Unleash the Grape Gripe ultimate
 - Auto-targeted attacks, enemy projectiles, collisions, pickups, health, cooldowns, and screen feedback
-- Icon-led power choices between waves
+- Icon-led power choices between regions
 - Win, defeat, replay, pausing, optional sound, haptics, and saved best score
-- Keyboard controls: WASD/arrows, Space, Shift, E, and Escape
+- Keyboard controls: WASD/arrows, Space, Shift, E, M, and Escape
 - Responsive safe-area layout and reduced-motion support
 
 ## Run locally
@@ -32,6 +35,6 @@ npm test
 
 The game has no production dependencies or build step. Cloudflare can serve `public` directly using the included `wrangler.jsonc` configuration.
 
-## Current product boundary
+## Release boundary
 
-This release is a complete authored arena run. Future versions can add more battlegrounds, fighters, enemy patterns, upgrade combinations, personal companion behavior, and shareable challenge modes without replacing the core visual combat loop.
+This release is a complete authored vertical slice: a start-to-finish four-region run with traversal, combat, upgrades, secrets, a boss, and a final victory state. Future versions can add regions, fighters, enemy patterns, routes, personal companion behavior, and shareable challenge modes without replacing the core journey-and-combat loop.

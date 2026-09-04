@@ -6,9 +6,14 @@ const root = resolve(import.meta.dirname, '..');
 const required = [
   'public/index.html',
   'public/styles.css',
-  'public/game.js',
+  'public/journey.js',
   'public/assets/arena.webp',
   'public/assets/grape-fighter.webp',
+  'public/assets/grape-fighter-back.webp',
+  'public/assets/grape-fighter-side.webp',
+  'public/assets/root-cellar.webp',
+  'public/assets/vineway.webp',
+  'public/assets/sourwood.webp',
   'public/assets/sourling.webp',
   'public/assets/rumor-moth.webp',
   'public/assets/thorn-brute.webp',
@@ -26,18 +31,24 @@ for (const file of required) {
 if (!failures.length) {
   const html = readFileSync(resolve(root, 'public/index.html'), 'utf8');
   const css = readFileSync(resolve(root, 'public/styles.css'), 'utf8');
-  const game = readFileSync(resolve(root, 'public/game.js'), 'utf8');
+  const game = readFileSync(resolve(root, 'public/journey.js'), 'utf8');
 
-  for (const reference of ['./styles.css', './game.js', './assets/arena.webp', './assets/grape-fighter.webp']) {
+  for (const reference of [
+    './styles.css',
+    './journey.js',
+    './assets/root-cellar.webp',
+    './assets/grape-fighter.webp',
+  ]) {
     if (!html.includes(reference)) failures.push(`index.html does not reference ${reference}`);
   }
 
   const controls = [
-    'aria-label="Start battle"',
+    'aria-label="Begin the journey"',
     'aria-label="Movement control"',
     'aria-label="Attack"',
     'aria-label="Dash"',
-    'aria-label="Companion burst"',
+    'aria-label="Unleash the Grape Gripe"',
+    'aria-label="Open journey map"',
     'aria-label="Choose a power"',
     'aria-live="polite"',
     'viewport-fit=cover',
@@ -47,33 +58,40 @@ if (!failures.length) {
   }
 
   const gameplay = [
+    'const regions',
     'const enemyTypes',
-    'const waves',
     'function attack()',
     'function dash()',
-    'function companionBurst()',
+    'function unleashGripe()',
+    'function enterRegion(index, fresh = false)',
+    'function beginTravel()',
+    'function triggerEncounter(encounter)',
+    'function drawTravelMap()',
+    'function heroRenderInfo(direction)',
     'function chooseUpgrade(type)',
     'function finishGame(won)',
-    "['boss', 0]",
+    "['boss', 'moth', 'sourling']",
   ];
   for (const marker of gameplay) {
     if (!game.includes(marker)) failures.push(`Missing arena gameplay marker: ${marker}`);
   }
 
   for (const match of game.matchAll(/\$\('([^']+)'\)/g)) {
-    if (!html.includes(`id="${match[1]}"`)) failures.push(`game.js expects missing element #${match[1]}`);
+    if (!html.includes(`id="${match[1]}"`)) failures.push(`journey.js expects missing element #${match[1]}`);
   }
 
   if (!css.includes('width: 100px') || !css.includes('height: 100px')) failures.push('Primary attack control is undersized');
   if (!css.includes('width: 126px') || !css.includes('height: 126px')) failures.push('Movement control is undersized');
   if (!css.includes('@media (prefers-reduced-motion: reduce)')) failures.push('Missing reduced-motion handling');
   if (/TODO|lorem ipsum|placeholder/i.test(`${html}\n${css}\n${game}`)) failures.push('Unresolved placeholder text found');
+  if (!html.includes('Move in eight directions')) failures.push('Eight-direction movement is not communicated accessibly');
+  if (!css.includes('.map-screen')) failures.push('Journey map styling is missing');
   if (/story-sheet|KNOWN|ASSUMED|MISSING|Reach the pulsing branch/.test(`${html}\n${game}`)) failures.push('Old reading-led detective interface remains');
 
   try {
-    execFileSync(process.execPath, ['--check', resolve(root, 'public/game.js')], { stdio: 'pipe' });
+    execFileSync(process.execPath, ['--check', resolve(root, 'public/journey.js')], { stdio: 'pipe' });
   } catch (error) {
-    failures.push(`game.js syntax check failed: ${error.stderr?.toString().trim() || error.message}`);
+    failures.push(`journey.js syntax check failed: ${error.stderr?.toString().trim() || error.message}`);
   }
 
   try {
@@ -89,4 +107,4 @@ if (failures.length) {
   process.exit(1);
 }
 
-console.log('Grape Gripe arena validation passed.');
+console.log('Grape Gripe journey validation passed.');
