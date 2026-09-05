@@ -12,13 +12,20 @@ test('every mission prop and encounter anchor fits its authored floor', () => {
   }
 });
 
-test('side-view route has only forgiving auto-hop gaps and a supported exit', () => {
-  const platforms = [...sideviewDefinition.platforms].sort((a, b) => a.x - b.x);
-  assert.ok(platforms[0].x <= sideviewDefinition.spawn.x);
-  assert.ok(platforms.at(-1).x + platforms.at(-1).width >= sideviewDefinition.exitX);
-  for (let index = 1; index < platforms.length; index++) {
-    const gap = platforms[index].x - (platforms[index - 1].x + platforms[index - 1].width);
+test('side-view route has forgiving ground gaps, upper ledges and reachable swing anchors', () => {
+  const ground = sideviewDefinition.platforms.filter((platform) => platform.id.startsWith('ground-')).sort((a, b) => a.x - b.x);
+  const ledges = sideviewDefinition.platforms.filter((platform) => platform.id.startsWith('ledge-'));
+  assert.ok(ground[0].x <= sideviewDefinition.spawn.x);
+  assert.ok(ground.at(-1).x + ground.at(-1).width >= sideviewDefinition.exitX);
+  assert.ok(ledges.length >= 5);
+  assert.ok(sideviewDefinition.vines.length >= 5);
+  for (let index = 1; index < ground.length; index++) {
+    const gap = ground[index].x - (ground[index - 1].x + ground[index - 1].width);
     assert.ok(gap >= 0 && gap <= 100, `gap ${index} is ${gap}`);
-    assert.ok(Math.abs(platforms[index].y - platforms[index - 1].y) <= 80, `step ${index} is too high`);
+    assert.ok(Math.abs(ground[index].y - ground[index - 1].y) <= 80, `step ${index} is too high`);
+  }
+  for (const vine of sideviewDefinition.vines) {
+    assert.ok(vine.y < sideviewDefinition.floor - 150);
+    assert.ok(vine.length >= 250);
   }
 });

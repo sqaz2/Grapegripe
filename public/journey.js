@@ -26,6 +26,13 @@ const pauseButton = $('pause-button');
 const mapButton = $('map-button');
 const pauseScreen = $('pause-screen');
 const resumeButton = $('resume-button');
+const gameplayHelpToggle = $('gameplay-help-toggle');
+const gameplayHelpState = $('gameplay-help-state');
+const contextHelp = $('context-help');
+const contextHelpCard = $('context-help-card');
+const contextHelpTitle = $('context-help-title');
+const contextHelpCopy = $('context-help-copy');
+const contextHelpContinue = $('context-help-continue');
 const mapScreen = $('map-screen');
 const closeMapButton = $('close-map-button');
 const guideButton = $('guide-button');
@@ -185,10 +192,26 @@ const state = {
   carried: null,
   contextTarget: null,
   sideview: null,
+  helpEnabled: readSaved('grape-gripe-gameplay-help') !== 'off',
+  helpReturnMode: 'playing',
+  activeHelp: null,
   bossFinale: null,
   endingSeen: false,
   persistenceAvailable: true,
 };
+
+const contextHelpDefinitions = Object.freeze({
+  'press-cork': {
+    title: 'Cork secured',
+    copy: 'Carry it to the glowing socket. You can still fire.',
+    announcement: 'Cork secured. Carry it to the glowing socket.',
+  },
+  'sideview-controls': {
+    title: 'Climb the Vineway',
+    copy: 'Push up to jump. Hold the green vine button to swing. Release to fly.',
+    announcement: 'Push up to jump. Hold the green vine button to swing, then release.',
+  },
+});
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value));
@@ -414,9 +437,62 @@ function showGameControls(show) {
   tutorialFocus.hidden = !show || state.tutorial !== 0;
 }
 
+function syncGameplayHelp() {
+  const enabled = Boolean(state.helpEnabled);
+  gameplayHelpToggle.setAttribute('aria-checked', String(enabled));
+  gameplayHelpToggle.setAttribute('aria-label', `Gameplay help ${enabled ? 'on' : 'off'}`);
+  gameplayHelpState.textContent = enabled ? 'ON' : 'OFF';
+}
+
+function configureSideviewControls(active) {
+  actionCluster.classList.toggle('sideview-controls', active);
+  joystickZone.classList.toggle('sideview-controls', active);
+  if (active) attackButton.setAttribute('aria-label', 'Hold to grab a vine');
+  else attackButton.setAttribute('aria-label', 'Attack');
+}
+
+function showContextHelp(id) {
+  const definition = contextHelpDefinitions[id];
+  if (!definition || !state.helpEnabled || readSaved(`grape-gripe-help-${id}`) === 'seen') return false;
+  clearInput();
+  state.helpReturnMode = state.mode;
+  state.activeHelp = id;
+  state.mode = 'help';
+  contextHelpCard.dataset.tip = id;
+  contextHelpTitle.textContent = definition.title;
+  contextHelpCopy.textContent = definition.copy;
+  contextHelp.hidden = false;
+  showGameControls(false);
+  announce(definition.announcement);
+  return true;
+}
+
+function dismissContextHelp(markSeen = true) {
+  if (state.mode !== 'help' || !state.activeHelp) return false;
+  if (markSeen) writeSaved(`grape-gripe-help-${state.activeHelp}`, 'seen');
+  clearInput();
+  state.mode = state.helpReturnMode;
+  state.activeHelp = null;
+  contextHelp.hidden = true;
+  const playing = state.mode === 'playing' || state.mode === 'sideview';
+  showGameControls(playing);
+  if (state.mode === 'sideview') mapButton.hidden = true;
+  accumulator = 0;
+  lastFrame = performance.now();
+  return true;
+}
+
+function toggleGameplayHelp() {
+  state.helpEnabled = !state.helpEnabled;
+  writeSaved('grape-gripe-gameplay-help', state.helpEnabled ? 'on' : 'off');
+  syncGameplayHelp();
+}
+
 function hideOverlays() {
   startScreen.hidden = true;
   pauseScreen.hidden = true;
+  contextHelp.hidden = true;
+  state.activeHelp = null;
   mapScreen.hidden = true;
   guideScreen.hidden = true;
   upgradeScreen.hidden = true;
@@ -444,6 +520,7 @@ function enterRegion(index, fresh = false, anchorId = null) {
   state.carried = null;
   state.contextTarget = null;
   state.sideview = null;
+  configureSideviewControls(false);
   state.bossFinale = null;
   state.guidance = { route: [], timer: 0, revision: -1 };
   hideOverlays();
@@ -630,14 +707,18 @@ function startSideview() {
   state.sideview = {
     x: sideviewDefinition.spawn.x, y: sideviewDefinition.spawn.y,
     vx: 0, vy: 0, grounded: false, checkpointX: sideviewDefinition.spawn.x,
-    cameraX: 0, direction: 0, dashTime: 0, dashCooldown: 0, actionCooldown: 0, finishTimer: 0,
+    cameraX: 0, direction: 1, dashTime: 0, dashCooldown: 0, actionCooldown: 0, finishTimer: 0,
+    standingPlatformId: null, coyote: 0, jumpBuffer: 0, jumpLatch: false,
+    grappleIndex: null, grappleLength: 0, grappleMiss: 0,
   };
   state.contextTarget = null;
   attackButton.classList.remove('is-context');
+  configureSideviewControls(true);
   showGameControls(true);
   mapButton.hidden = true;
   companionButton.disabled = true;
   announce('A hidden passage. Keep moving toward the light.');
+  showContextHelp('sideview-controls');
 }
 
 function finishSideview() {
@@ -660,6 +741,7 @@ function useContextTarget() {
     if (!objectiveComplete(prop.objectiveId)) completeObjective(prop.objectiveId, { x: prop.x, y: prop.y, score: 45, energy: 2 });
     state.carried = 'press-cork';
     sound('secret');
+    showContextHelp('press-cork');
     return true;
   }
   if (prop.kind === 'socket' && state.carried === 'press-cork') {
@@ -677,11 +759,29 @@ function useContextTarget() {
 function sideviewAction() {
   if (state.mode !== 'sideview' || !state.sideview) return false;
   const side = state.sideview;
+  if (side.grappleIndex !== null) return true;
   if (side.actionCooldown > 0) return false;
   side.actionCooldown = 0.24;
-  burstParticles(side.x, side.y - 45, '#d9ff45', 11, 120);
-  side.vx += side.direction >= 0 ? 90 : -90;
-  sound('attack');
+  let nearestIndex = -1;
+  let nearestDistance = 370;
+  for (let index = 0; index < sideviewDefinition.vines.length; index += 1) {
+    const vine = sideviewDefinition.vines[index];
+    const d = Math.hypot(side.x - vine.x, side.y - vine.y);
+    if (vine.y < side.y - 36 && d < nearestDistance) { nearestDistance = d; nearestIndex = index; }
+  }
+  if (nearestIndex >= 0) {
+    const vine = sideviewDefinition.vines[nearestIndex];
+    side.grappleIndex = nearestIndex;
+    side.grappleLength = clamp(nearestDistance, 96, vine.length);
+    side.grounded = false;
+    side.standingPlatformId = null;
+    burstParticles(vine.x, vine.y, '#d9ff45', 14, 135);
+    sound('secret'); vibrate(12);
+  } else {
+    side.grappleMiss = 0.28;
+    burstParticles(side.x + side.direction * 46, side.y - 48, '#d9ff45', 8, 95);
+    sound('attack');
+  }
   return true;
 }
 
@@ -1248,8 +1348,22 @@ function updateCamera(amount = 0.12) {
   state.camera.y = lerp(state.camera.y, targetY, amount);
 }
 
-function sidePlatformAt(x) {
-  return sideviewDefinition.platforms.find((platform) => x >= platform.x && x <= platform.x + platform.width) || null;
+function sidePlatformsAt(x) {
+  return sideviewDefinition.platforms.filter((platform) => x >= platform.x && x <= platform.x + platform.width);
+}
+
+function sidePlatformById(id) {
+  return sideviewDefinition.platforms.find((platform) => platform.id === id) || null;
+}
+
+function sideGroundAt(x) {
+  return sidePlatformsAt(x).sort((a, b) => b.y - a.y)[0] || null;
+}
+
+function sideLandingAt(x, oldY, nextY) {
+  return sidePlatformsAt(x)
+    .filter((platform) => oldY <= platform.y + 10 && nextY >= platform.y)
+    .sort((a, b) => a.y - b.y)[0] || null;
 }
 
 function updateSideview(dt) {
@@ -1259,6 +1373,7 @@ function updateSideview(dt) {
   side.dashCooldown = Math.max(0, side.dashCooldown - dt);
   side.actionCooldown = Math.max(0, side.actionCooldown - dt);
   side.dashTime = Math.max(0, side.dashTime - dt);
+  side.grappleMiss = Math.max(0, side.grappleMiss - dt);
   if (side.finishTimer > 0) {
     side.finishTimer -= dt;
     updateEffects(dt);
@@ -1270,14 +1385,53 @@ function updateSideview(dt) {
   if (input.keys.has('arrowright') || input.keys.has('d')) xInput += 1;
   xInput = clamp(xInput, -1, 1);
   if (Math.abs(xInput) > 0.12) side.direction = Math.sign(xInput);
-  if (side.dashTime <= 0) side.vx += (xInput * 205 - side.vx) * (1 - Math.exp(-dt * 11));
+
+  const jumpHeld = input.joyY < -0.5 || input.keys.has('arrowup') || input.keys.has('w');
+  if (jumpHeld && !side.jumpLatch) side.jumpBuffer = 0.14;
+  side.jumpLatch = jumpHeld;
+  side.jumpBuffer = Math.max(0, side.jumpBuffer - dt);
+  side.coyote = side.grounded ? 0.12 : Math.max(0, side.coyote - dt);
+
+  const grappleHeld = input.attackHeld || input.keys.has(' ');
+  if (side.grappleIndex !== null && !grappleHeld) side.grappleIndex = null;
+  if (grappleHeld && side.grappleIndex === null && side.actionCooldown <= 0) sideviewAction();
+
+  if (side.jumpBuffer > 0 && (side.grounded || side.coyote > 0)) {
+    side.jumpBuffer = 0;
+    side.coyote = 0;
+    side.grounded = false;
+    side.standingPlatformId = null;
+    side.vy = -455;
+    state.shockwaves.push({ x: side.x, y: side.y, radius: 4, max: 42, life: 0.3, color: '#d9ff45' });
+    sound('dash'); vibrate(8);
+  }
+
+  if (side.dashTime <= 0) {
+    const speed = side.grounded ? 225 : 250;
+    const response = side.grounded ? 13 : 7.5;
+    side.vx += (xInput * speed - side.vx) * (1 - Math.exp(-dt * response));
+  }
   side.vy += 970 * dt;
 
-  const currentPlatform = sidePlatformAt(side.x);
+  if (side.grappleIndex !== null) {
+    const vine = sideviewDefinition.vines[side.grappleIndex];
+    const dx = side.x - vine.x;
+    const dy = side.y - vine.y;
+    const length = Math.hypot(dx, dy) || 1;
+    const tangentX = dy / length;
+    const tangentY = -dx / length;
+    side.vx += tangentX * xInput * 430 * dt;
+    side.vy += tangentY * xInput * 430 * dt;
+    side.grappleLength = clamp(side.grappleLength + input.joyY * 105 * dt, 88, vine.length);
+  }
+
+  const support = sidePlatformById(side.standingPlatformId);
   const lookAhead = side.x + (side.direction || 1) * 34;
-  if (side.grounded && Math.abs(xInput) > 0.3 && !sidePlatformAt(lookAhead)) {
-    side.vy = -355;
+  const hasForwardFloor = support && sidePlatformsAt(lookAhead).some((platform) => Math.abs(platform.y - support.y) <= 82);
+  if (side.grounded && Math.abs(xInput) > 0.3 && support && !hasForwardFloor) {
+    side.vy = -330;
     side.grounded = false;
+    side.standingPlatformId = null;
     state.shockwaves.push({ x: side.x, y: side.y, radius: 4, max: 38, life: 0.28, color: '#d9ff45' });
   }
 
@@ -1285,24 +1439,46 @@ function updateSideview(dt) {
   const oldY = side.y;
   side.x = clamp(side.x + side.vx * dt, 24, sideviewDefinition.width - 24);
   let nextY = side.y + side.vy * dt;
-  const landing = sidePlatformAt(side.x);
+
+  if (side.grappleIndex !== null) {
+    const vine = sideviewDefinition.vines[side.grappleIndex];
+    const dx = side.x - vine.x;
+    const dy = nextY - vine.y;
+    const length = Math.hypot(dx, dy) || 1;
+    if (length > side.grappleLength) {
+      const nx = dx / length;
+      const ny = dy / length;
+      side.x = vine.x + nx * side.grappleLength;
+      nextY = vine.y + ny * side.grappleLength;
+      const outwardSpeed = side.vx * nx + side.vy * ny;
+      if (outwardSpeed > 0) {
+        side.vx -= outwardSpeed * nx;
+        side.vy -= outwardSpeed * ny;
+      }
+    }
+  }
+
+  const landing = side.vy >= 0 ? sideLandingAt(side.x, oldY, nextY) : null;
   side.grounded = false;
-  if (landing && side.vy >= 0 && oldY <= landing.y + 12 && nextY >= landing.y) {
+  if (landing) {
     nextY = landing.y;
     side.vy = 0;
     side.grounded = true;
-  } else if (currentPlatform && side.vy >= 0 && side.x >= currentPlatform.x && side.x <= currentPlatform.x + currentPlatform.width && oldY <= currentPlatform.y + 12 && nextY >= currentPlatform.y) {
-    nextY = currentPlatform.y;
-    side.vy = 0;
-    side.grounded = true;
+    side.standingPlatformId = landing.id;
+    side.grappleIndex = null;
+  } else {
+    side.standingPlatformId = null;
   }
   side.y = nextY;
   for (const checkpoint of sideviewDefinition.checkpoints) if (side.x >= checkpoint) side.checkpointX = checkpoint;
   if (side.y > 760) {
     side.x = side.checkpointX;
-    const platform = sidePlatformAt(side.x);
-    side.y = (platform?.y || sideviewDefinition.floor) - 28;
+    const platform = sideGroundAt(side.x);
+    side.y = platform?.y || sideviewDefinition.floor;
     side.vx = 0; side.vy = 0;
+    side.grounded = Boolean(platform);
+    side.standingPlatformId = platform?.id || null;
+    side.grappleIndex = null;
     state.flash = 0.22;
     vibrate(20);
   }
@@ -1313,7 +1489,6 @@ function updateSideview(dt) {
   const sideViewWidth = viewport.width / sideScale;
   side.cameraX = lerp(side.cameraX, clamp(side.x - sideViewWidth * 0.38, 0, Math.max(0, sideviewDefinition.width - sideViewWidth)), 1 - Math.exp(-dt * 6));
   if (side.x >= sideviewDefinition.exitX) finishSideview();
-  if (input.attackHeld || input.keys.has(' ')) sideviewAction();
   updateEffects(dt);
   updateUI();
 }
@@ -1413,6 +1588,7 @@ function pauseGame() {
   state.returnMode = state.mode;
   state.mode = 'paused';
   pauseScreen.hidden = false;
+  syncGameplayHelp();
   showGameControls(false);
   pauseButton.hidden = false;
   soundButton.hidden = false;
@@ -1698,6 +1874,17 @@ function drawMissionProps() {
 function drawCarried() {
   if (state.carried !== 'press-cork') return;
   drawCork(state.hero.x, state.hero.y - 112, 0.72, Math.sin(state.time * 4) * 0.08);
+  const socket = state.mission?.props.find((prop) => prop.kind === 'socket' && !objectiveComplete(prop.objectiveId));
+  if (!socket) return;
+  const angle = Math.atan2(socket.y - state.hero.y, socket.x - state.hero.x);
+  const pulse = prefersReducedMotion ? 1 : 1 + Math.sin(state.time * 6) * .12;
+  ctx.save();
+  ctx.translate(state.hero.x, state.hero.y - 76);
+  ctx.rotate(angle);
+  ctx.scale(pulse, pulse);
+  ctx.fillStyle = '#ffd462'; ctx.shadowBlur = 18; ctx.shadowColor = '#ffd462';
+  ctx.beginPath(); ctx.moveTo(49, 0); ctx.lineTo(29, -11); ctx.lineTo(34, 0); ctx.lineTo(29, 11); ctx.closePath(); ctx.fill();
+  ctx.restore();
 }
 
 function drawGate() {
@@ -2170,16 +2357,83 @@ function drawSideview() {
   ctx.save();
   ctx.scale(scale, scale);
   ctx.translate(-side.cameraX, 0);
-  ctx.drawImage(images.sideview, 0, 0, sideviewDefinition.width, 720);
+  const panelWidth = 1728;
+  for (let panel = 0; panel * panelWidth < sideviewDefinition.width; panel += 1) {
+    const x = panel * panelWidth;
+    if (panel % 2 === 0) ctx.drawImage(images.sideview, x, 0, panelWidth, 720);
+    else {
+      ctx.save();
+      ctx.translate(x + panelWidth, 0);
+      ctx.scale(-1, 1);
+      ctx.drawImage(images.sideview, 0, 0, panelWidth, 720);
+      ctx.restore();
+    }
+  }
   const glow = ctx.createLinearGradient(0, 470, 0, 720);
   glow.addColorStop(0, 'rgba(23,5,44,0)'); glow.addColorStop(1, 'rgba(8,1,16,.66)');
   ctx.fillStyle = glow; ctx.fillRect(side.cameraX, 0, viewport.width / scale, 720);
-  for (const platform of sideviewDefinition.platforms) {
-    ctx.strokeStyle = 'rgba(217,255,69,.18)'; ctx.lineWidth = 3;
-    ctx.beginPath(); ctx.moveTo(platform.x, platform.y + 2); ctx.lineTo(platform.x + platform.width, platform.y + 2); ctx.stroke();
+
+  for (let index = 0; index < sideviewDefinition.vines.length; index += 1) {
+    const vine = sideviewDefinition.vines[index];
+    const sway = prefersReducedMotion ? 0 : Math.sin(state.time * 1.8 + index * 1.7) * 7;
+    const selected = side.grappleIndex === index;
+    ctx.save();
+    ctx.strokeStyle = selected ? '#d9ff45' : 'rgba(91, 142, 31, .9)';
+    ctx.lineWidth = selected ? 7 : 5;
+    ctx.lineCap = 'round';
+    ctx.shadowBlur = selected ? 24 : 10;
+    ctx.shadowColor = selected ? '#d9ff45' : '#79b42c';
+    ctx.beginPath();
+    ctx.moveTo(vine.x - sway * .25, 0);
+    ctx.bezierCurveTo(vine.x + 24 + sway, vine.y * .32, vine.x - 20 - sway, vine.y * .7, vine.x, vine.y);
+    ctx.stroke();
+    ctx.fillStyle = selected ? '#ecff95' : '#9dcc38';
+    ctx.beginPath(); ctx.ellipse(vine.x - 9, vine.y - 10, 14, 7, -0.55, 0, Math.PI * 2); ctx.fill();
+    ctx.beginPath(); ctx.ellipse(vine.x + 10, vine.y - 7, 14, 7, 0.55, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = selected ? '#d9ff45' : '#8b44c3';
+    for (const [dx, dy] of [[0, 0], [-8, 10], [8, 10], [0, 19]]) { ctx.beginPath(); ctx.arc(vine.x + dx, vine.y + dy, 7, 0, Math.PI * 2); ctx.fill(); }
+    ctx.restore();
   }
+
+  for (const platform of sideviewDefinition.platforms) {
+    ctx.save();
+    ctx.lineCap = 'round';
+    ctx.strokeStyle = platform.kind === 'vine' ? 'rgba(32, 12, 43, .96)' : 'rgba(22, 10, 30, .9)';
+    ctx.lineWidth = platform.kind === 'vine' ? 24 : 20;
+    ctx.beginPath(); ctx.moveTo(platform.x + 8, platform.y + 8); ctx.lineTo(platform.x + platform.width - 8, platform.y + 8); ctx.stroke();
+    ctx.strokeStyle = platform.kind === 'vine' ? '#73a52a' : 'rgba(124, 99, 142, .82)';
+    ctx.lineWidth = platform.kind === 'vine' ? 8 : 7;
+    ctx.shadowBlur = platform.kind === 'vine' ? 14 : 8;
+    ctx.shadowColor = platform.kind === 'vine' ? '#9be133' : '#7c4d94';
+    ctx.beginPath(); ctx.moveTo(platform.x + 5, platform.y); ctx.lineTo(platform.x + platform.width - 5, platform.y); ctx.stroke();
+    if (platform.kind === 'vine') {
+      for (let x = platform.x + 34; x < platform.x + platform.width - 15; x += 58) {
+        ctx.fillStyle = '#9b54cf';
+        ctx.beginPath(); ctx.arc(x, platform.y + 14 + ((x / 58) % 2) * 4, 6, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#9fd347';
+        ctx.beginPath(); ctx.ellipse(x + 8, platform.y - 6, 10, 5, -.45, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
+  if (side.grappleIndex !== null) {
+    const vine = sideviewDefinition.vines[side.grappleIndex];
+    ctx.save();
+    ctx.strokeStyle = '#d9ff45'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+    ctx.shadowBlur = 20; ctx.shadowColor = '#d9ff45';
+    ctx.beginPath(); ctx.moveTo(vine.x, vine.y + 16); ctx.lineTo(side.x, side.y - 42); ctx.stroke();
+    ctx.restore();
+  } else if (side.grappleMiss > 0) {
+    const reach = (1 - side.grappleMiss / .28) * 90;
+    ctx.save(); ctx.globalAlpha = clamp(side.grappleMiss * 3.6, 0, 1);
+    ctx.strokeStyle = '#d9ff45'; ctx.lineWidth = 6; ctx.lineCap = 'round';
+    ctx.beginPath(); ctx.moveTo(side.x + side.direction * 18, side.y - 46); ctx.quadraticCurveTo(side.x + side.direction * 50, side.y - 80, side.x + side.direction * reach, side.y - 65); ctx.stroke(); ctx.restore();
+  }
+
+  const exitFloor = sideGroundAt(sideviewDefinition.exitX);
+  const exitY = (exitFloor?.y || 530) - 72;
   const exitPulse = 1 + Math.sin(state.time * 5) * 0.08;
-  ctx.save(); ctx.translate(sideviewDefinition.exitX + 35, 458); ctx.scale(exitPulse, exitPulse);
+  ctx.save(); ctx.translate(sideviewDefinition.exitX + 35, exitY); ctx.scale(exitPulse, exitPulse);
   ctx.strokeStyle = '#d9ff45'; ctx.lineWidth = 7; ctx.shadowBlur = 26; ctx.shadowColor = '#d9ff45';
   ctx.beginPath(); ctx.arc(0, 0, 35, Math.PI, 0); ctx.lineTo(35, 42); ctx.moveTo(-35, 42); ctx.lineTo(-35, 0); ctx.stroke(); ctx.restore();
   drawHeroAt(side.x, side.y, side.direction >= 0 ? 0 : 4);
@@ -2230,7 +2484,8 @@ function draw() {
   ctx.fillRect(0, 0, viewport.width, viewport.height);
   if (!assetsReady || !state.hero || !state.terrain) return;
 
-  if (state.mode === 'sideview') {
+  const renderMode = (state.mode === 'paused' || state.mode === 'help') ? (state.mode === 'help' ? state.helpReturnMode : state.returnMode) : state.mode;
+  if (renderMode === 'sideview') {
     drawSideview();
     if (state.flash > 0) { ctx.fillStyle = `rgba(255,55,96,${state.flash * 0.35})`; ctx.fillRect(0, 0, viewport.width, viewport.height); }
     return;
@@ -2265,7 +2520,7 @@ function draw() {
   drawRegionIntro();
   drawUltimateOverlay();
   drawFinalePayoff();
-  if (state.mode === 'travel') drawTravelMap();
+  if (renderMode === 'travel') drawTravelMap();
   if (state.flash > 0) {
     ctx.fillStyle = `rgba(255,55,96,${state.flash * 0.35})`;
     ctx.fillRect(0, 0, viewport.width, viewport.height);
@@ -2311,6 +2566,7 @@ function releaseJoystick(event) {
 
 function releaseAttack() {
   input.attackHeld = false;
+  if (state.sideview) state.sideview.grappleIndex = null;
   attackButton.classList.remove('is-held');
 }
 
@@ -2320,6 +2576,7 @@ function clearInput() {
   joystickKnob.style.transform = '';
   joystickBase.style.left = ''; joystickBase.style.top = ''; joystickBase.style.bottom = '';
   joystickZone.classList.remove('is-active'); attackButton.classList.remove('is-held');
+  if (state.sideview) state.sideview.grappleIndex = null;
 }
 
 joystickZone.addEventListener('pointerdown', (event) => {
@@ -2392,6 +2649,8 @@ restartButton.addEventListener('click', () => {
 });
 pauseButton.addEventListener('click', () => state.mode === 'paused' ? resumeGame() : pauseGame());
 resumeButton.addEventListener('click', resumeGame);
+gameplayHelpToggle.addEventListener('click', toggleGameplayHelp);
+contextHelpContinue.addEventListener('click', dismissContextHelp);
 mapButton.addEventListener('click', openMap);
 closeMapButton.addEventListener('click', closeMap);
 guideButton.addEventListener('click', openGuide);
@@ -2416,6 +2675,11 @@ window.addEventListener('keydown', (event) => {
   const key = event.key.toLowerCase();
   input.keys.add(key);
   if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'shift', 'e', 'm'].includes(key)) event.preventDefault();
+  if (state.mode === 'help') {
+    input.keys.delete(key);
+    if (key === ' ' || key === 'enter' || key === 'escape') dismissContextHelp();
+    return;
+  }
   if (event.repeat && ['m', 'escape', 'shift', 'e'].includes(key)) return;
   if (state.mode === 'start' && (key === ' ' || key === 'enter')) {
     initializeSound();
@@ -2453,6 +2717,7 @@ async function loadImages() {
 
 async function boot() {
   state.mode = 'loading';
+  syncGameplayHelp();
   startButton.disabled = true;
   $('retry-load').hidden = true;
   $('loading-message').textContent = 'Loading the vineyard…';

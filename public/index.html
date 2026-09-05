@@ -147,6 +147,10 @@
           <svg class="interact-icon" viewBox="0 0 84 84" aria-hidden="true">
             <path d="M42 7c7 0 12 6 12 13v14h8c9 0 15 8 13 17l-3 13c-2 8-9 13-17 13H34c-6 0-11-3-14-8L8 48c-3-5 4-10 8-6l10 10V20c0-7 5-13 12-13Zm0 8c-3 0-5 2-5 5v30l-6 5 7 13h17c4 0 8-3 9-7l3-13c1-3-2-6-5-6H46V20c0-3-2-5-4-5Z" />
           </svg>
+          <svg class="grapple-icon" viewBox="0 0 84 84" aria-hidden="true">
+            <path d="M17 70c18-2 30-11 34-26 3-12 1-25 10-31 6-4 13 0 12 7-1 8-10 10-16 6-7-5-15 0-16 10-2 14 8 23 22 24" />
+            <path d="m57 49 8 11-13 5" />
+          </svg>
         </button>
       </div>
 
@@ -175,10 +179,40 @@
         </div>
       </section>
 
-      <section id="pause-screen" class="pause-screen" hidden aria-label="Battle paused">
-        <button id="resume-button" class="round-overlay-button" type="button" aria-label="Resume battle">
-          <svg viewBox="0 0 100 100" aria-hidden="true"><path d="M38 25 76 50 38 75Z" /></svg>
-        </button>
+      <section id="pause-screen" class="pause-screen" hidden role="dialog" aria-modal="true" aria-label="Battle paused">
+        <div class="pause-panel">
+          <button id="resume-button" class="round-overlay-button" type="button" aria-label="Resume battle">
+            <svg viewBox="0 0 100 100" aria-hidden="true"><path d="M38 25 76 50 38 75Z" /></svg>
+          </button>
+          <button id="gameplay-help-toggle" class="help-toggle" type="button" role="switch" aria-checked="true" aria-label="Gameplay help on">
+            <span class="help-orb" aria-hidden="true">?</span>
+            <strong>HELP</strong>
+            <i aria-hidden="true"><span></span></i>
+            <em id="gameplay-help-state">ON</em>
+          </button>
+        </div>
+      </section>
+
+      <section id="context-help" class="context-help" hidden role="dialog" aria-modal="true" aria-labelledby="context-help-title" aria-describedby="context-help-copy">
+        <div id="context-help-card" class="context-help-card">
+          <div class="context-help-visual cork-help" aria-hidden="true">
+            <span class="lesson-cork"><i></i></span>
+            <b>➜</b>
+            <span class="lesson-socket"><i></i></span>
+          </div>
+          <div class="context-help-visual sideview-help" aria-hidden="true">
+            <span class="lesson-control lesson-jump"><i>↑</i></span>
+            <span class="lesson-plus">+</span>
+            <span class="lesson-control lesson-grapple"><i></i><b>☝</b></span>
+            <span class="lesson-plus">+</span>
+            <span class="lesson-control lesson-dash">➜</span>
+          </div>
+          <h2 id="context-help-title">Cork secured</h2>
+          <p id="context-help-copy">Carry it to the glowing socket. You can still fire.</p>
+          <button id="context-help-continue" class="context-help-continue" type="button" aria-label="Continue playing">
+            <svg viewBox="0 0 100 100" aria-hidden="true"><path d="M38 25 76 50 38 75Z" /></svg>
+          </button>
+        </div>
       </section>
 
       <section id="map-screen" class="map-screen" hidden aria-label="Journey map">

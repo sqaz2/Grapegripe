@@ -149,6 +149,8 @@ test('context action powers the Root Cellar and the press cork stays carried whi
   g.enterRegion(2);
   Object.assign(g.state.hero, { x: 477, y: 1150 }); g.updateContextTarget(); g.useContextTarget();
   assert.equal(g.state.carried, 'press-cork');
+  assert.equal(g.state.mode, 'help');
+  g.dismissContextHelp();
   const boltsBefore = g.state.bolts.length;
   g.attack();
   assert.equal(g.state.carried, 'press-cork', 'attacking must not drop the objective');
@@ -167,7 +169,9 @@ test('heavy shots power press vents and the optional side passage returns safely
   }
   g.enterRegion(1); g.completeObjective('vineway-route');
   g.startSideview();
+  g.dismissContextHelp();
   g.state.sideview.x = 1700; g.update(1/60);
+  g.state.sideview.x = 2900; g.update(1/60);
   assert.ok(g.state.campaign.completed.includes('vineway-passage'));
   g.update(1);
   assert.equal(g.state.mode, 'playing'); assert.equal(g.state.regionIndex, 1);
@@ -175,6 +179,7 @@ test('heavy shots power press vents and the optional side passage returns safely
 
 test('the phone joystick remains live inside the optional side passage', async () => {
   const g = await loadGame(); g.resetGame(); g.enterRegion(1); g.startSideview();
+  g.dismissContextHelp();
   const joystick = g.element('joystick-zone');
   const down = { pointerId: 17, clientX: 90, clientY: 700, preventDefault() {} };
   joystick.listeners.pointerdown[0](down);
@@ -187,6 +192,52 @@ test('the phone joystick remains live inside the optional side passage', async (
   joystick.listeners.pointerup[0]({ pointerId: 17 });
   assert.equal(g.input.joystickId, null);
   assert.equal(g.input.joyX, 0);
+});
+
+test('first-time help explains carried objectives and can be disabled from pause', async () => {
+  const storage = new Map();
+  const g = await loadGame({ storage }); g.resetGame(); g.enterRegion(2);
+  Object.assign(g.state.hero, { x: 477, y: 1150 });
+  g.updateContextTarget(); g.useContextTarget();
+  assert.equal(g.state.mode, 'help');
+  assert.equal(g.element('context-help-card').dataset.tip, 'press-cork');
+  assert.equal(g.element('context-help').hidden, false);
+  g.dismissContextHelp();
+  assert.equal(g.state.mode, 'playing');
+  assert.equal(storage.get('grape-gripe-help-press-cork'), 'seen');
+  g.pauseGame();
+  g.toggleGameplayHelp();
+  assert.equal(g.state.helpEnabled, false);
+  assert.equal(storage.get('grape-gripe-gameplay-help'), 'off');
+  assert.equal(g.element('gameplay-help-toggle').getAttribute('aria-checked'), 'false');
+});
+
+test('side passage supports manual jumping, air steering and vine grappling', async () => {
+  const storage = new Map([['grape-gripe-help-sideview-controls', 'seen']]);
+  const g = await loadGame({ storage }); g.resetGame(); g.enterRegion(1); g.startSideview();
+  for (let frame = 0; frame < 40 && !g.state.sideview.grounded; frame += 1) g.update(1/60);
+  assert.equal(g.state.sideview.grounded, true);
+  const groundY = g.state.sideview.y;
+  g.input.joyY = -1;
+  g.update(1/60);
+  g.input.joyY = 0;
+  assert.ok(g.state.sideview.vy < 0, 'pushing up should jump');
+  for (let frame = 0; frame < 8; frame += 1) g.update(1/60);
+  assert.ok(g.state.sideview.y < groundY - 35);
+  const beforeAirX = g.state.sideview.x;
+  g.input.joyX = 1;
+  for (let frame = 0; frame < 12; frame += 1) g.update(1/60);
+  assert.ok(g.state.sideview.x > beforeAirX + 10, 'joystick should steer in the air');
+
+  const vine = g.sideviewDefinition.vines[0];
+  Object.assign(g.state.sideview, { x: vine.x - 35, y: vine.y + 245, vx: 0, vy: 0, actionCooldown: 0, grappleIndex: null });
+  g.input.attackHeld = true;
+  assert.equal(g.sideviewAction(), true);
+  assert.equal(g.state.sideview.grappleIndex, 0);
+  g.update(1/60);
+  g.input.attackHeld = false;
+  g.update(1/60);
+  assert.equal(g.state.sideview.grappleIndex, null, 'releasing the button should release the vine');
 });
 
 test('the Gripe Maw survives ordinary damage and the charged finale completes it', async () => {
