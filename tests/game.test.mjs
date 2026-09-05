@@ -158,6 +158,22 @@ test('heavy shots power press vents and the optional side passage returns safely
   assert.equal(g.state.mode, 'playing'); assert.equal(g.state.regionIndex, 1);
 });
 
+test('the phone joystick remains live inside the optional side passage', async () => {
+  const g = await loadGame(); g.resetGame(); g.enterRegion(1); g.startSideview();
+  const joystick = g.element('joystick-zone');
+  const down = { pointerId: 17, clientX: 90, clientY: 700, preventDefault() {} };
+  joystick.listeners.pointerdown[0](down);
+  joystick.listeners.pointermove[0]({ ...down, clientX: 135 });
+  assert.equal(g.input.joystickId, 17);
+  assert.ok(g.input.joyX > 0.9);
+  const startX = g.state.sideview.x;
+  for (let i = 0; i < 30; i += 1) g.update(1/60);
+  assert.ok(g.state.sideview.x > startX + 20, 'held joystick should move the side-view hero');
+  joystick.listeners.pointerup[0]({ pointerId: 17 });
+  assert.equal(g.input.joystickId, null);
+  assert.equal(g.input.joyX, 0);
+});
+
 test('the Gripe Maw survives ordinary damage and the charged finale completes it', async () => {
   const g = await loadGame(); g.resetGame();
   g.completeObjective('root-companion');

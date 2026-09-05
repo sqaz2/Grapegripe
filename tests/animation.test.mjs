@@ -20,6 +20,19 @@ test('pushing a wall stops gait; idle, attack and dash have stable states', () =
   advanceAnimator(a, { dt: .1, attacking: true, hurt: true }); assert.equal(a.state, 'hurt');
 });
 
+test('idle plants both boots and cycles through quiet poses plus an occasional gag', () => {
+  const a = createAnimator();
+  const variants = [];
+  for (const dt of [0, 3.5, 2.5, 2.5, 2.2]) {
+    advanceAnimator(a, { distance: 0, dt });
+    const pose = sampleAnimation(a, 4);
+    assert.equal(pose.row, 0, 'rest must leave the side-on running cells');
+    assert.equal(pose.column, 2, 'rest must keep the balanced two-boot frame');
+    variants.push(pose.idleVariant);
+  }
+  assert.deepEqual(variants, ['breathe', 'look-left', 'look-right', 'settle', 'companion-bonk']);
+});
+
 test('gait is frame-rate independent and all eight directions are explicit', () => {
   const a = createAnimator(), b = createAnimator();
   for (let i = 0; i < 30; i++) advanceAnimator(a, { distance: 150/30, dt: 1/30 });
