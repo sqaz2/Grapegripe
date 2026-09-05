@@ -24,7 +24,9 @@ The initial source had a baked background. The asset preparation pass removed th
 2. Check the body pivot and apparent size across all views. Feet should plant while the body moves forward; the hood and face must not visibly change design between cells.
 3. Add authored attack anticipation/release/recovery, dash launch/travel/land, hurt/recovery, interaction and victory clips. The current controller's corresponding states still use walk poses plus simple transforms.
 4. Give the companion a separate clean asset and reaction clips. The present runtime crop is functional, not a complete companion animation system.
-5. Build the ultimate storyboard: earmuffs, absurd cork, pressure build, release, impact and the companion's return. Use authored timings rather than a text joke over circles.
+5. Replace the release's runtime-staged ultimate art with authored poses. The shipped timing now includes earmuffs, an absurd cork pull, pressure build, release and impact without relying on a text joke, but the hero and companion poses are assembled from the existing art rather than a reusable rig.
+
+A second 4×4 action-sheet experiment was deliberately rejected from the release because its checkerboard was baked into opaque pixels and its east-facing walk row was missing. It is evidence for the rig recommendation, not a hidden production asset.
 
 Do not repeatedly generate the same large sprite sheet when the model fails at alternating anatomy. The earlier research's stronger long-term approach is a reusable rig, with the same animations rendered into directional atlases or shown through a tested real-time renderer. That decision still needs a controlled phone comparison; this pass does not introduce a 3D engine.
 
