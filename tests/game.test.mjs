@@ -136,7 +136,7 @@ test('actual held attacks and projectile damage can clear the first encounter', 
   assert.equal(g.state.gate, null);
 });
 
-test('context action powers the Root Cellar and press cork can be dropped and delivered', async () => {
+test('context action powers the Root Cellar and the press cork stays carried while attacking', async () => {
   const g = await loadGame(); g.resetGame();
   Object.assign(g.state.hero, { x: 478, y: 1255 });
   g.updateContextTarget(); assert.equal(g.useContextTarget(), true);
@@ -149,8 +149,10 @@ test('context action powers the Root Cellar and press cork can be dropped and de
   g.enterRegion(2);
   Object.assign(g.state.hero, { x: 477, y: 1150 }); g.updateContextTarget(); g.useContextTarget();
   assert.equal(g.state.carried, 'press-cork');
-  g.attack(); assert.equal(g.state.carried, null);
-  g.updateContextTarget(); g.useContextTarget();
+  const boltsBefore = g.state.bolts.length;
+  g.attack();
+  assert.equal(g.state.carried, 'press-cork', 'attacking must not drop the objective');
+  assert.equal(g.state.bolts.length, boltsBefore + 1, 'carrying must not disable shooting');
   Object.assign(g.state.hero, { x: 477, y: 760 }); g.updateContextTarget(); g.useContextTarget();
   assert.ok(g.state.campaign.completed.includes('press-cork-delivered'));
 });

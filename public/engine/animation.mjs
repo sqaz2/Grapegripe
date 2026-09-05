@@ -6,6 +6,9 @@ const facings = [
   { row: 1, flip: 1 }, { row: 2, flip: 1 }, { row: 3, flip: 1 },
   { row: 4, flip: 1 }, { row: 3, flip: -1 },
 ];
+// Pick the most balanced frame available in each authored direction. A future
+// dedicated idle atlas can replace these without changing the state machine.
+const idleColumns = [2, 0, 1, 0, 0];
 
 export function createAnimator() {
   return { phase: 0, state: 'idle', stateTime: 0, distance: 0 };
@@ -37,12 +40,9 @@ export function sampleAnimation(animator, direction = 2) {
       : idleVariant === 'look-right' ? 0.018
         : idleVariant === 'companion-bonk' ? Math.sin((idleTime - 10.4) * 7) * 0.012
           : 0;
-    // The walk sheet has no side-on rest frame: every side cell lifts a boot.
-    // Rest therefore turns toward the player and uses its one balanced, grounded cell.
     return {
-      row: 0,
-      flip: idleVariant === 'look-left' ? -1 : 1,
-      column: 2,
+      ...facing,
+      column: idleColumns[facing.row],
       state: animator.state,
       phase: animator.phase,
       stateTime: animator.stateTime,

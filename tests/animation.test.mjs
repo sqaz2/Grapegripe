@@ -26,11 +26,23 @@ test('idle plants both boots and cycles through quiet poses plus an occasional g
   for (const dt of [0, 3.5, 2.5, 2.5, 2.2]) {
     advanceAnimator(a, { distance: 0, dt });
     const pose = sampleAnimation(a, 4);
-    assert.equal(pose.row, 0, 'rest must leave the side-on running cells');
-    assert.equal(pose.column, 2, 'rest must keep the balanced two-boot frame');
+    assert.equal(pose.row, 2);
+    assert.equal(pose.flip, 1);
+    assert.equal(pose.column, 1);
     variants.push(pose.idleVariant);
   }
   assert.deepEqual(variants, ['breathe', 'look-left', 'look-right', 'settle', 'companion-bonk']);
+});
+
+test('stopping preserves all eight facing directions', () => {
+  const idle = createAnimator();
+  const walking = createAnimator();
+  advanceAnimator(walking, { distance: 8, dt: 1/60 });
+  const idlePoses = Array.from({ length: 8 }, (_, direction) => sampleAnimation(idle, direction));
+  const movingPoses = Array.from({ length: 8 }, (_, direction) => sampleAnimation(walking, direction));
+  assert.deepEqual(idlePoses.map(({ row }) => row), movingPoses.map(({ row }) => row));
+  assert.deepEqual(idlePoses.map(({ flip }) => flip), movingPoses.map(({ flip }) => flip));
+  assert.deepEqual(idlePoses.map(({ column }) => column), [1, 0, 2, 0, 1, 0, 0, 0]);
 });
 
 test('gait is frame-rate independent and all eight directions are explicit', () => {

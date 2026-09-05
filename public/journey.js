@@ -674,16 +674,6 @@ function useContextTarget() {
   return false;
 }
 
-function dropCork() {
-  if (state.carried !== 'press-cork') return false;
-  const cork = state.mission?.props.find((prop) => prop.id === 'press-cork');
-  if (cork) { cork.x = state.hero.x; cork.y = state.hero.y; }
-  state.carried = null;
-  state.shockwaves.push({ x: state.hero.x, y: state.hero.y, radius: 6, max: 52, life: 0.35, color: '#ffd462' });
-  vibrate(12);
-  return true;
-}
-
 function sideviewAction() {
   if (state.mode !== 'sideview' || !state.sideview) return false;
   const side = state.sideview;
@@ -700,7 +690,6 @@ function attack() {
   if (state.mode !== 'playing' || !state.hero || state.hero.attackCooldown > 0 || state.ultimate) return false;
   updateContextTarget();
   if (state.contextTarget && useContextTarget()) return true;
-  if (state.carried === 'press-cork') return dropCork();
   const hero = state.hero;
   const target = nearestEnemy(hero, 340);
   let vector = directionVector(hero.direction);
@@ -1840,19 +1829,29 @@ function drawEnemy(enemy) {
   }
 }
 
-const idleCapeSections = [
-  { x: 54, y: 148, width: 74, height: 94, direction: -1 },
-  { x: 282, y: 151, width: 66, height: 94, direction: 1 },
-];
+const idleCapeSections = {
+  0: [
+    { x: 54, y: 148, width: 74, height: 94, direction: -1 },
+    { x: 282, y: 151, width: 66, height: 94, direction: 1 },
+  ],
+  1: [{ x: 248, y: 133, width: 108, height: 122, direction: 1 }],
+  2: [{ x: 224, y: 112, width: 138, height: 142, direction: 1 }],
+  3: [{ x: 178, y: 108, width: 180, height: 151, direction: 1 }],
+  4: [
+    { x: 48, y: 116, width: 116, height: 145, direction: -1 },
+    { x: 225, y: 116, width: 132, height: 145, direction: 1 },
+  ],
+};
 
 function drawIdleCapeWind(pose, frameX, frameY, size, scale) {
   const bands = 7;
   const sourceX = pose.column * heroAtlas.cell;
   const sourceY = pose.row * heroAtlas.cell;
+  const capeSections = idleCapeSections[pose.row] || [];
 
   // Redraw only the two loose cape edges in narrow horizontal bands. The feet,
   // body and silhouette anchor never move, while the lower cloth catches more wind.
-  for (const section of idleCapeSections) {
+  for (const section of capeSections) {
     const bandHeight = section.height / bands;
     for (let band = 0; band < bands; band += 1) {
       const progress = (band + 1) / bands;
@@ -1880,7 +1879,7 @@ function drawIdleCapeWind(pose, frameX, frameY, size, scale) {
   ctx.save();
   ctx.beginPath();
   ctx.rect(frameX - 2, frameY - 2, size + 4, size + 4);
-  for (const section of idleCapeSections) {
+  for (const section of capeSections) {
     ctx.rect(
       frameX + section.x * scale,
       frameY + section.y * scale,
