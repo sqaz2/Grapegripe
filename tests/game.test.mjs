@@ -263,11 +263,48 @@ test('side passage supports manual jumping, air steering and vine grappling', as
   Object.assign(g.state.sideview, { x: vine.x - 35, y: vine.y + 245, vx: 0, vy: 0, actionCooldown: 0, grappleIndex: null });
   g.input.attackHeld = true;
   assert.equal(g.sideviewAction(), true);
+  assert.equal(g.state.sideview.grapplePhase, 'windup');
+  assert.equal(g.state.sideview.grappleTargetIndex, 0);
+  assert.equal(g.state.sideview.direction, 1, 'the hero should turn toward the anchor before reaching');
+  for (let frame = 0; frame < 12; frame += 1) g.update(1/60);
   assert.equal(g.state.sideview.grappleIndex, 0);
+  assert.equal(g.state.sideview.grapplePhase, 'swing');
+  g.state.sideview.grappleAngularVelocity = 2.2;
   g.update(1/60);
+  const releaseVx = g.state.sideview.vx;
+  const releaseVy = g.state.sideview.vy;
   g.input.attackHeld = false;
   g.update(1/60);
   assert.equal(g.state.sideview.grappleIndex, null, 'releasing the button should release the vine');
+  assert.equal(g.state.sideview.grapplePhase, 'none');
+  assert.ok(Math.sign(g.state.sideview.vx) === Math.sign(releaseVx), 'release should preserve horizontal travel direction');
+  assert.ok(Math.abs(g.state.sideview.vy - releaseVy) < 30, 'release should preserve vertical momentum');
+});
+
+test('side passage pendulum can carry the hero over an anchor and receipts reward high routes', async () => {
+  const storage = new Map([['grape-gripe-help-sideview-controls', 'seen']]);
+  const g = await loadGame({ storage }); g.resetGame(); g.enterRegion(1); g.startSideview();
+  const vine = g.sideviewDefinition.vines[0];
+  Object.assign(g.state.sideview, { x: vine.x - 120, y: vine.y + 180, vx: 400, vy: -120, actionCooldown: 0 });
+  g.input.attackHeld = true; g.sideviewAction();
+  for (let frame = 0; frame < 12; frame += 1) g.update(1/60);
+  g.state.sideview.grappleAngle = -2.65;
+  g.state.sideview.grappleAngularVelocity = -3.2;
+  let roseAboveAnchor = false;
+  for (let frame = 0; frame < 40; frame += 1) {
+    g.update(1/60);
+    if (g.state.sideview.y < vine.y) roseAboveAnchor = true;
+  }
+  assert.equal(roseAboveAnchor, true, 'enough momentum should permit an up-and-over swing');
+
+  g.input.attackHeld = false; g.update(1/60);
+  const receipt = g.state.sideview.receipts[0];
+  Object.assign(g.state.sideview, { x: receipt.x, y: receipt.y + 45, vx: 0, vy: 0 });
+  const scoreBefore = g.state.score;
+  g.update(1/60);
+  assert.equal(receipt.collected, true);
+  assert.equal(g.state.sideview.receiptCount, 1);
+  assert.ok(g.state.score > scoreBefore);
 });
 
 test('the Gripe Maw survives ordinary damage and the charged finale completes it', async () => {

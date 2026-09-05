@@ -84,5 +84,13 @@ export const sideviewDefinition = Object.freeze({
     { x: 2150, y: 225, length: 300 },
     { x: 2580, y: 150, length: 280 },
   ],
+  receipts: [
+    { x: 500, y: 355, tilt: -0.18 },
+    { x: 895, y: 285, tilt: 0.14 },
+    { x: 1265, y: 350, tilt: -0.1 },
+    { x: 1695, y: 270, tilt: 0.2 },
+    { x: 2115, y: 325, tilt: -0.16 },
+    { x: 2570, y: 255, tilt: 0.12 },
+  ],
   checkpoints: [110, 625, 1065, 1485, 1930, 2360, 2745],
 });

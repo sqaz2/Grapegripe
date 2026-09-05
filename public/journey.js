@@ -211,8 +211,8 @@ const contextHelpDefinitions = Object.freeze({
   },
   'sideview-controls': {
     title: 'Climb the Vineway',
-    copy: 'Push up to jump. Hold the green vine button to swing. Release to fly.',
-    announcement: 'Push up to jump. Hold the green vine button to swing, then release.',
+    copy: 'Face a vine, then hold the green vine button. Pump the stick to swing. Release to fly.',
+    announcement: 'Face a vine, hold the green vine button, pump the stick, then release to fly.',
   },
   'press-mystery': {
     title: 'There is more to this gripe',
@@ -721,7 +721,10 @@ function startSideview() {
     vx: 0, vy: 0, grounded: false, checkpointX: sideviewDefinition.spawn.x,
     cameraX: 0, direction: 1, dashTime: 0, dashCooldown: 0, actionCooldown: 0, finishTimer: 0,
     standingPlatformId: null, coyote: 0, jumpBuffer: 0, jumpLatch: false,
-    grappleIndex: null, grappleLength: 0, grappleMiss: 0,
+    grappleIndex: null, grappleTargetIndex: null, grapplePhase: 'none', grappleLength: 0,
+    grappleAngle: 0, grappleAngularVelocity: 0, grappleWindup: 0, grappleGrace: 0, grappleMiss: 0, releaseFlash: 0,
+    receipts: sideviewDefinition.receipts.map((receipt, id) => ({ ...receipt, id, collected: false })),
+    receiptCount: 0,
   };
   state.contextTarget = null;
   attackButton.classList.remove('is-context');
@@ -822,7 +825,7 @@ function verdictColor(choice = state.campaign.routeChoices.press) {
 function sideviewAction() {
   if (state.mode !== 'sideview' || !state.sideview) return false;
   const side = state.sideview;
-  if (side.grappleIndex !== null) return true;
+  if (side.grapplePhase === 'swing' || side.grapplePhase === 'windup') return true;
   if (side.actionCooldown > 0) return false;
   side.actionCooldown = 0.24;
   let nearestIndex = -1;
@@ -834,18 +837,61 @@ function sideviewAction() {
   }
   if (nearestIndex >= 0) {
     const vine = sideviewDefinition.vines[nearestIndex];
-    side.grappleIndex = nearestIndex;
-    side.grappleLength = clamp(nearestDistance, 96, vine.length);
-    side.grounded = false;
-    side.standingPlatformId = null;
-    burstParticles(vine.x, vine.y, '#d9ff45', 14, 135);
-    sound('secret'); vibrate(12);
+    side.grapplePhase = 'windup';
+    side.grappleTargetIndex = nearestIndex;
+    side.grappleWindup = 0.17;
+    side.direction = Math.sign(vine.x - side.x) || side.direction;
+    sound('attack'); vibrate(6);
   } else {
     side.grappleMiss = 0.28;
     burstParticles(side.x + side.direction * 46, side.y - 48, '#d9ff45', 8, 95);
     sound('attack');
   }
   return true;
+}
+
+function attachSideGrapple(index) {
+  const side = state.sideview;
+  const vine = sideviewDefinition.vines[index];
+  if (!side || !vine) return false;
+  const dx = side.x - vine.x;
+  const dy = side.y - vine.y;
+  const length = Math.hypot(dx, dy) || 1;
+  side.grappleIndex = index;
+  side.grappleTargetIndex = null;
+  side.grapplePhase = 'swing';
+  const nearFloor = sidePlatformsAt(side.x).some((platform) => Math.abs(platform.y - side.y) < 30);
+  side.grappleLength = clamp(length - (nearFloor ? 46 : 0), Math.max(96, Math.abs(dx) + 4), vine.length);
+  side.grappleAngle = Math.asin(clamp(dx / side.grappleLength, -.995, .995));
+  side.grappleAngularVelocity = (side.vx * Math.cos(side.grappleAngle) - side.vy * Math.sin(side.grappleAngle)) / side.grappleLength;
+  if (Math.abs(side.grappleAngularVelocity) < 0.42) side.grappleAngularVelocity = side.direction * 0.42;
+  side.grounded = false;
+  side.standingPlatformId = null;
+  side.grappleGrace = .18;
+  burstParticles(vine.x, vine.y, '#d9ff45', 14, 135);
+  sound('secret'); vibrate(12);
+  return true;
+}
+
+function releaseSideGrapple(launch = true) {
+  const side = state.sideview;
+  if (!side) return false;
+  const wasSwinging = side.grapplePhase === 'swing';
+  if (wasSwinging && launch) {
+    const speed = Math.hypot(side.vx, side.vy);
+    const boost = speed > 360 ? 1.08 : 1.035;
+    side.vx = clamp(side.vx * boost, -760, 760);
+    side.vy = clamp(side.vy * boost, -760, 760);
+    side.releaseFlash = 0.28;
+    burstParticles(side.x - side.vx * .025, side.y - 42 - side.vy * .025, '#ffcd54', speed > 360 ? 18 : 9, 120);
+    sound('dash'); vibrate(speed > 360 ? 18 : 9);
+  }
+  side.grappleIndex = null;
+  side.grappleTargetIndex = null;
+  side.grapplePhase = 'none';
+  side.grappleWindup = 0;
+  side.grappleGrace = 0;
+  return wasSwinging;
 }
 
 function attack() {
@@ -1448,6 +1494,8 @@ function updateSideview(dt) {
   side.actionCooldown = Math.max(0, side.actionCooldown - dt);
   side.dashTime = Math.max(0, side.dashTime - dt);
   side.grappleMiss = Math.max(0, side.grappleMiss - dt);
+  side.grappleGrace = Math.max(0, side.grappleGrace - dt);
+  side.releaseFlash = Math.max(0, side.releaseFlash - dt);
   if (side.finishTimer > 0) {
     side.finishTimer -= dt;
     updateEffects(dt);
@@ -1467,8 +1515,19 @@ function updateSideview(dt) {
   side.coyote = side.grounded ? 0.12 : Math.max(0, side.coyote - dt);
 
   const grappleHeld = input.attackHeld || input.keys.has(' ');
-  if (side.grappleIndex !== null && !grappleHeld) side.grappleIndex = null;
-  if (grappleHeld && side.grappleIndex === null && side.actionCooldown <= 0) sideviewAction();
+  let releasedThisFrame = false;
+  if (!grappleHeld && side.grapplePhase !== 'none') releasedThisFrame = releaseSideGrapple(true);
+  if (grappleHeld && side.grapplePhase === 'none' && side.actionCooldown <= 0) sideviewAction();
+  if (side.grapplePhase === 'windup') {
+    const vine = sideviewDefinition.vines[side.grappleTargetIndex];
+    if (!vine) releaseSideGrapple(false);
+    else {
+      side.direction = Math.sign(vine.x - side.x) || side.direction;
+      side.grappleWindup -= dt;
+      side.vx *= Math.exp(-dt * 8);
+      if (side.grappleWindup <= 0 && grappleHeld) attachSideGrapple(side.grappleTargetIndex);
+    }
+  }
 
   if (side.jumpBuffer > 0 && (side.grounded || side.coyote > 0)) {
     side.jumpBuffer = 0;
@@ -1480,23 +1539,13 @@ function updateSideview(dt) {
     sound('dash'); vibrate(8);
   }
 
-  if (side.dashTime <= 0) {
-    const speed = side.grounded ? 225 : 250;
-    const response = side.grounded ? 13 : 7.5;
-    side.vx += (xInput * speed - side.vx) * (1 - Math.exp(-dt * response));
-  }
-  side.vy += 970 * dt;
-
-  if (side.grappleIndex !== null) {
-    const vine = sideviewDefinition.vines[side.grappleIndex];
-    const dx = side.x - vine.x;
-    const dy = side.y - vine.y;
-    const length = Math.hypot(dx, dy) || 1;
-    const tangentX = dy / length;
-    const tangentY = -dx / length;
-    side.vx += tangentX * xInput * 430 * dt;
-    side.vy += tangentY * xInput * 430 * dt;
-    side.grappleLength = clamp(side.grappleLength + input.joyY * 105 * dt, 88, vine.length);
+  if (side.grapplePhase !== 'swing') {
+    if (side.dashTime <= 0 && !releasedThisFrame) {
+      const speed = side.grounded ? 225 : 250;
+      const response = side.grounded ? 13 : 7.5;
+      side.vx += (xInput * speed - side.vx) * (1 - Math.exp(-dt * response));
+    }
+    if (!releasedThisFrame) side.vy += 970 * dt;
   }
 
   const support = sidePlatformById(side.standingPlatformId);
@@ -1511,35 +1560,34 @@ function updateSideview(dt) {
 
   const oldX = side.x;
   const oldY = side.y;
-  side.x = clamp(side.x + side.vx * dt, 24, sideviewDefinition.width - 24);
-  let nextY = side.y + side.vy * dt;
-
-  if (side.grappleIndex !== null) {
+  let nextY;
+  if (side.grapplePhase === 'swing' && side.grappleIndex !== null) {
     const vine = sideviewDefinition.vines[side.grappleIndex];
-    const dx = side.x - vine.x;
-    const dy = nextY - vine.y;
-    const length = Math.hypot(dx, dy) || 1;
-    if (length > side.grappleLength) {
-      const nx = dx / length;
-      const ny = dy / length;
-      side.x = vine.x + nx * side.grappleLength;
-      nextY = vine.y + ny * side.grappleLength;
-      const outwardSpeed = side.vx * nx + side.vy * ny;
-      if (outwardSpeed > 0) {
-        side.vx -= outwardSpeed * nx;
-        side.vy -= outwardSpeed * ny;
-      }
-    }
+    side.grappleLength = clamp(side.grappleLength + input.joyY * 92 * dt, 88, vine.length);
+    const angularAcceleration = -(970 / side.grappleLength) * Math.sin(side.grappleAngle) + xInput * 2.25;
+    side.grappleAngularVelocity += angularAcceleration * dt;
+    side.grappleAngularVelocity *= Math.exp(-dt * 0.075);
+    side.grappleAngularVelocity = clamp(side.grappleAngularVelocity, -7, 7);
+    side.grappleAngle += side.grappleAngularVelocity * dt;
+    side.x = clamp(vine.x + Math.sin(side.grappleAngle) * side.grappleLength, 24, sideviewDefinition.width - 24);
+    nextY = vine.y + Math.cos(side.grappleAngle) * side.grappleLength;
+    side.vx = Math.cos(side.grappleAngle) * side.grappleLength * side.grappleAngularVelocity;
+    side.vy = -Math.sin(side.grappleAngle) * side.grappleLength * side.grappleAngularVelocity;
+    side.direction = Math.sign(vine.x - side.x) || side.direction;
+  } else {
+    side.x = clamp(side.x + side.vx * dt, 24, sideviewDefinition.width - 24);
+    nextY = side.y + side.vy * dt;
   }
 
-  const landing = side.vy >= 0 ? sideLandingAt(side.x, oldY, nextY) : null;
+  const landing = side.vy >= 0 && (side.grapplePhase !== 'swing' || side.grappleGrace <= 0)
+    ? sideLandingAt(side.x, oldY, nextY) : null;
   side.grounded = false;
   if (landing) {
     nextY = landing.y;
     side.vy = 0;
     side.grounded = true;
     side.standingPlatformId = landing.id;
-    side.grappleIndex = null;
+    releaseSideGrapple(false);
   } else {
     side.standingPlatformId = null;
   }
@@ -1552,12 +1600,23 @@ function updateSideview(dt) {
     side.vx = 0; side.vy = 0;
     side.grounded = Boolean(platform);
     side.standingPlatformId = platform?.id || null;
-    side.grappleIndex = null;
+    releaseSideGrapple(false);
     state.flash = 0.22;
     vibrate(20);
   }
+  for (const receipt of side.receipts) {
+    if (receipt.collected || Math.hypot(side.x - receipt.x, side.y - 45 - receipt.y) >= 43) continue;
+    receipt.collected = true;
+    side.receiptCount += 1;
+    state.energy = Math.min(state.maxEnergy, state.energy + 3);
+    state.score += 35;
+    state.lastStraw = Math.min(state.maxStraw, state.lastStraw + 4);
+    burstParticles(receipt.x, receipt.y, '#ffcd54', 24, 165);
+    state.shockwaves.push({ x: receipt.x, y: receipt.y, radius: 5, max: 55, life: .42, color: '#ffcd54' });
+    sound('collect'); vibrate(11);
+  }
   const moved = Math.hypot(side.x - oldX, side.y - oldY);
-  advanceAnimator(state.hero.animator, { distance: moved, dt, dashing: side.dashTime > 0, attacking: false, hurt: false, ultimate: false });
+  advanceAnimator(state.hero.animator, { distance: moved, dt, dashing: side.dashTime > 0 || Math.hypot(side.vx, side.vy) > 430, attacking: side.grapplePhase === 'windup', hurt: false, ultimate: false });
   state.hero.direction = side.direction >= 0 ? 0 : 4;
   const sideScale = viewport.height / 720;
   const sideViewWidth = viewport.width / sideScale;
@@ -2182,7 +2241,7 @@ function drawIdleCapeWind(pose, frameX, frameY, size, scale) {
   ctx.restore();
 }
 
-function drawHeroAt(x, y, direction, alpha = 1, ghost = false, frozenPose = null) {
+function drawHeroAt(x, y, direction, alpha = 1, ghost = false, frozenPose = null, externalRotation = 0) {
   const hero = state.hero;
   const pose = frozenPose || sampleAnimation(hero.animator, direction);
   const size = heroAtlas.worldSize;
@@ -2195,6 +2254,7 @@ function drawHeroAt(x, y, direction, alpha = 1, ghost = false, frozenPose = null
   drawShadow(x, y + 4, 62, ghost ? 0.1 : 0.4);
   ctx.save();
   ctx.translate(x, y);
+  ctx.rotate(externalRotation);
   // Scale from the planted-foot anchor so breathing never makes the boots float.
   ctx.scale(pose.flip * (1 - idleBreath * 0.45), 1 + idleBreath);
   ctx.rotate(lean);
@@ -2205,6 +2265,26 @@ function drawHeroAt(x, y, direction, alpha = 1, ghost = false, frozenPose = null
   if (idleMotion) drawIdleCapeWind(pose, frameX, frameY, size, scale);
   else ctx.drawImage(images.heroWalk, pose.column * heroAtlas.cell, pose.row * heroAtlas.cell,
     heroAtlas.cell, heroAtlas.cell, frameX, frameY, size, size);
+  ctx.restore();
+}
+
+function drawSideReceipt(receipt) {
+  if (receipt.collected) return;
+  const bob = prefersReducedMotion ? 0 : Math.sin(state.time * 3.4 + receipt.id * 1.8) * 5;
+  const pulse = 1 + Math.sin(state.time * 4.2 + receipt.id) * .06;
+  ctx.save();
+  ctx.translate(receipt.x, receipt.y + bob);
+  ctx.rotate(receipt.tilt + Math.sin(state.time * 2.1 + receipt.id) * .035);
+  ctx.scale(pulse, pulse);
+  ctx.shadowBlur = 24; ctx.shadowColor = '#ffcd54';
+  ctx.fillStyle = '#fff0b5'; ctx.strokeStyle = '#ffcd54'; ctx.lineWidth = 3;
+  ctx.beginPath();
+  ctx.moveTo(-15, -20); ctx.lineTo(15, -20); ctx.lineTo(13, 18);
+  ctx.lineTo(8, 14); ctx.lineTo(3, 19); ctx.lineTo(-2, 14); ctx.lineTo(-7, 19); ctx.lineTo(-14, 15); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0; ctx.strokeStyle = '#6a286f'; ctx.lineWidth = 2.5; ctx.lineCap = 'round';
+  for (const y of [-10, -3, 4]) { ctx.beginPath(); ctx.moveTo(-8, y); ctx.lineTo(y === 4 ? 4 : 8, y); ctx.stroke(); }
+  ctx.fillStyle = '#ff4fa3'; ctx.beginPath(); ctx.arc(8, 7, 3, 0, Math.PI * 2); ctx.fill();
   ctx.restore();
 }
 
@@ -2540,12 +2620,26 @@ function drawSideview() {
     }
     ctx.restore();
   }
-  if (side.grappleIndex !== null) {
+  for (const receipt of side.receipts) drawSideReceipt(receipt);
+  if (side.grapplePhase === 'swing' && side.grappleIndex !== null) {
     const vine = sideviewDefinition.vines[side.grappleIndex];
     ctx.save();
     ctx.strokeStyle = '#d9ff45'; ctx.lineWidth = 6; ctx.lineCap = 'round';
     ctx.shadowBlur = 20; ctx.shadowColor = '#d9ff45';
     ctx.beginPath(); ctx.moveTo(vine.x, vine.y + 16); ctx.lineTo(side.x, side.y - 42); ctx.stroke();
+    ctx.restore();
+  } else if (side.grapplePhase === 'windup' && side.grappleTargetIndex !== null) {
+    const vine = sideviewDefinition.vines[side.grappleTargetIndex];
+    const progress = clamp(1 - side.grappleWindup / .17, 0, 1);
+    const handX = side.x + side.direction * 20;
+    const handY = side.y - 47;
+    const tipX = lerp(handX, vine.x, progress);
+    const tipY = lerp(handY, vine.y + 16, progress);
+    ctx.save(); ctx.globalAlpha = .55 + progress * .45;
+    ctx.strokeStyle = '#d9ff45'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+    ctx.shadowBlur = 18; ctx.shadowColor = '#d9ff45';
+    ctx.beginPath(); ctx.moveTo(handX, handY);
+    ctx.quadraticCurveTo(lerp(handX, tipX, .52), Math.min(handY, tipY) - 34 * (1 - progress), tipX, tipY); ctx.stroke();
     ctx.restore();
   } else if (side.grappleMiss > 0) {
     const reach = (1 - side.grappleMiss / .28) * 90;
@@ -2560,9 +2654,25 @@ function drawSideview() {
   ctx.save(); ctx.translate(sideviewDefinition.exitX + 35, exitY); ctx.scale(exitPulse, exitPulse);
   ctx.strokeStyle = '#d9ff45'; ctx.lineWidth = 7; ctx.shadowBlur = 26; ctx.shadowColor = '#d9ff45';
   ctx.beginPath(); ctx.arc(0, 0, 35, Math.PI, 0); ctx.lineTo(35, 42); ctx.moveTo(-35, 42); ctx.lineTo(-35, 0); ctx.stroke(); ctx.restore();
-  drawHeroAt(side.x, side.y, side.direction >= 0 ? 0 : 4);
+  const swingTilt = side.grapplePhase === 'swing'
+    ? clamp(-side.grappleAngle * .15 + side.grappleAngularVelocity * .045, -.48, .48)
+    : side.grapplePhase === 'windup' ? side.direction * -.08 : 0;
+  if (side.releaseFlash > 0 && !prefersReducedMotion) {
+    const fade = side.releaseFlash / .28;
+    drawHeroAt(side.x - side.vx * .035, side.y - side.vy * .035, side.direction >= 0 ? 0 : 4, fade * .24, true, null, swingTilt);
+  }
+  drawHeroAt(side.x, side.y, side.direction >= 0 ? 0 : 4, 1, false, null, swingTilt);
   const hover = prefersReducedMotion ? 0 : Math.sin(state.time * 3) * 4;
   ctx.drawImage(images.heroFront, 427, 0, 179, 233, side.x + (side.direction >= 0 ? -48 : 30), side.y - 115 + hover, 34, 44);
+  ctx.save();
+  ctx.translate(side.cameraX + 86, 112);
+  ctx.scale(.72, .72);
+  drawSideReceipt({ id: 0, x: 0, y: 0, tilt: -.08, collected: false });
+  ctx.restore();
+  ctx.save(); ctx.fillStyle = '#fff8dc'; ctx.strokeStyle = '#25102f'; ctx.lineWidth = 5;
+  ctx.font = '1000 22px Inter, system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.strokeText(`${side.receiptCount}/${side.receipts.length}`, side.cameraX + 105, 112);
+  ctx.fillText(`${side.receiptCount}/${side.receipts.length}`, side.cameraX + 105, 112); ctx.restore();
   drawParticles();
   if (side.x < 260) {
     ctx.globalAlpha = clamp(1 - side.x / 280, 0, 0.8);
@@ -2690,7 +2800,7 @@ function releaseJoystick(event) {
 
 function releaseAttack() {
   input.attackHeld = false;
-  if (state.sideview) state.sideview.grappleIndex = null;
+  if (state.sideview) releaseSideGrapple(true);
   attackButton.classList.remove('is-held');
 }
 
@@ -2700,7 +2810,7 @@ function clearInput() {
   joystickKnob.style.transform = '';
   joystickBase.style.left = ''; joystickBase.style.top = ''; joystickBase.style.bottom = '';
   joystickZone.classList.remove('is-active'); attackButton.classList.remove('is-held');
-  if (state.sideview) state.sideview.grappleIndex = null;
+  if (state.sideview) releaseSideGrapple(false);
 }
 
 joystickZone.addEventListener('pointerdown', (event) => {

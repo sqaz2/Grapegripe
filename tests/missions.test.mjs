@@ -19,6 +19,7 @@ test('side-view route has forgiving ground gaps, upper ledges and reachable swin
   assert.ok(ground.at(-1).x + ground.at(-1).width >= sideviewDefinition.exitX);
   assert.ok(ledges.length >= 5);
   assert.ok(sideviewDefinition.vines.length >= 5);
+  assert.equal(sideviewDefinition.receipts.length, sideviewDefinition.vines.length);
   for (let index = 1; index < ground.length; index++) {
     const gap = ground[index].x - (ground[index - 1].x + ground[index - 1].width);
     assert.ok(gap >= 0 && gap <= 100, `gap ${index} is ${gap}`);
@@ -27,5 +28,9 @@ test('side-view route has forgiving ground gaps, upper ledges and reachable swin
   for (const vine of sideviewDefinition.vines) {
     assert.ok(vine.y < sideviewDefinition.floor - 150);
     assert.ok(vine.length >= 250);
+  }
+  for (const receipt of sideviewDefinition.receipts) {
+    assert.ok(receipt.x > 0 && receipt.x < sideviewDefinition.width);
+    assert.ok(receipt.y > 0 && receipt.y < sideviewDefinition.floor - 100);
   }
 });
