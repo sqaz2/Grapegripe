@@ -307,6 +307,37 @@ test('side passage pendulum can carry the hero over an anchor and receipts rewar
   assert.ok(g.state.score > scoreBefore);
 });
 
+test('Vineway stunt route rewards fast moth impacts, rejects slow ones and records mastery', async () => {
+  const storage = new Map([['grape-gripe-help-sideview-controls', 'seen']]);
+  const g = await loadGame({ storage }); g.resetGame(); g.enterRegion(1); g.startSideview();
+  const side = g.state.sideview;
+  const firstFly = side.flies[0];
+  const nextTime = g.state.time + 1 / 60;
+  const firstX = firstFly.baseX + Math.sin(nextTime * 1.25 + firstFly.phase) * firstFly.range;
+  const firstY = g.sideviewDefinition.flies[0].y + Math.sin(nextTime * 2.8 + firstFly.phase) * 16;
+  Object.assign(side, { x: firstX - 4, y: firstY + 45, vx: 0, vy: 0, grounded: false, hitCooldown: 0 });
+  g.update(1/60);
+  assert.equal(firstFly.defeated, false, 'a slow collision should not defeat a moth');
+  assert.ok(Math.abs(side.vx) >= 250, 'a slow collision should visibly bounce the hero away');
+
+  side.hitCooldown = 0;
+  const secondFly = side.flies[1];
+  const secondTime = g.state.time + 1 / 60;
+  const secondX = secondFly.baseX + Math.sin(secondTime * 1.25 + secondFly.phase) * secondFly.range;
+  const secondY = g.sideviewDefinition.flies[1].y + Math.sin(secondTime * 2.8 + secondFly.phase) * 16;
+  Object.assign(side, { x: secondX - 7, y: secondY + 45, vx: 430, vy: 0, grounded: false });
+  g.update(1/60);
+  assert.equal(secondFly.defeated, true, 'a high-speed impact should defeat a moth');
+
+  for (const receipt of side.receipts) receipt.collected = true;
+  side.receiptCount = side.receipts.length;
+  for (const fly of side.flies) fly.defeated = true;
+  side.flyCount = side.flies.length;
+  g.update(1/60);
+  assert.equal(side.masteryAwarded, true);
+  assert.ok(g.state.campaign.mastered.includes('vineway-receipt-run'));
+});
+
 test('the Gripe Maw survives ordinary damage and the charged finale completes it', async () => {
   const g = await loadGame(); g.resetGame();
   g.completeObjective('root-companion');

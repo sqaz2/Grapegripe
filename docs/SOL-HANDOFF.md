@@ -2,7 +2,7 @@
 
 This brief guided the conversion of the four-region combat demo into a journey with distinct objectives, permanent discoveries, an optional route and a proper ending. More identical waves would have added length without solving that problem.
 
-**Release status:** campaign persistence, varied objectives, the optional side-view passage, the staged ending, restoration loop, visual guide and rematch are implemented. Press Pit now includes a complete visual mystery: three icon clues unlock a four-way verdict, and SAY/SOLVE/SAVE/DROP persist as distinct combat perks. The remaining material gap is a truly authored reusable character rig/atlas: the current side gait still has imperfect foot phases, and special actions are staged from the existing atlas.
+**Release status:** campaign persistence, varied objectives, the optional side-view passage, the staged ending, restoration loop, visual guide and rematch are implemented. Press Pit includes a complete visual mystery: three icon clues unlock a four-way verdict, and SAY/SOLVE/SAVE/DROP persist as distinct combat perks. Vineway now has an optional mastery route with anticipated vine grabs, pendulum motion, momentum-preserving release, six Receipts and three speed-gated Rumor Moths. Completing both sets persists a mastery mark without blocking the main exit. The remaining material gap is a truly authored reusable character rig/atlas: the current side gait still has imperfect foot phases, and special actions are staged from the existing atlas.
 
 ## Preserve the user's decisions
 
@@ -122,6 +122,7 @@ Prototype **one optional side-view excursion** branching off Vineway:
 - The same hero, attack, dash, companion, inventory and settings continue across the boundary. Do not invent a second progression economy.
 - A miss returns to the nearest ledge with a small setback. It should not erase a whole campaign.
 - The excursion has a distinct reward and returns to a defined Vineway anchor. Its completion flag survives reload.
+- Its optional stunt route teaches momentum visually: slow contact with a Rumor Moth bounces the hero away, while a fast impact breaks through. Six elevated Receipts plus three moths award a persistent mastery mark; neither is required to leave.
 - Keep it optional until the controls and camera are enjoyable on a phone. Do not make difficult platforming mandatory to reach the main ending.
 
 Technical seam: define a scene adapter with `enter(payload)`, `update(dt,input)`, `render(view)`, `serializeCheckpoint()` and `exit()`. Suspend the old scene, release input, validate the destination anchor, commit once, then activate the new scene. Cancelled transitions and failed loads restore the old checkpoint. The current top-down `Terrain` handles floor polygons; side-view scenes need a separate gravity/platform solver, not rotated top-down coordinates.

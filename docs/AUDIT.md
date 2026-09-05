@@ -58,6 +58,7 @@ Run `npm test` with Node 22 or newer. The suite checks:
 - Real held attacks and projectile damage clear the first encounter in a logic simulation.
 - Context actions complete the Root Cellar relays; the Press cork can be carried, dropped and delivered; heavy shots power both vents.
 - The optional side passage commits its reward and returns to a safe Vineway anchor.
+- Vine grappling uses an anticipated face-and-reach phase and explicit pendulum state; release retains tangent velocity, fast arcs can pass above an anchor, slow moth impacts bounce, fast impacts defeat, and the Receipt-run mastery round-trips through save validation.
 - Ordinary attacks cannot finish the Gripe Maw; the charged finale can, and grants the ending exactly once.
 - A moth and a large boss navigate around the actual bridge gap without falling or becoming stuck.
 

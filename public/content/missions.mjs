@@ -92,5 +92,10 @@ export const sideviewDefinition = Object.freeze({
     { x: 2115, y: 325, tilt: -0.16 },
     { x: 2570, y: 255, tilt: 0.12 },
   ],
+  flies: [
+    { x: 1080, y: 300, range: 82, phase: 0.4 },
+    { x: 1850, y: 260, range: 105, phase: 2.1 },
+    { x: 2460, y: 235, range: 92, phase: 4.3 },
+  ],
   checkpoints: [110, 625, 1065, 1485, 1930, 2360, 2745],
 });

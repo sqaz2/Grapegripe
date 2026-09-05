@@ -35,3 +35,12 @@ test('the Press Pit verdict survives validation and reload', () => {
   assert.equal(stored.campaign.routeChoices.press, 'save');
   assert.equal(loadSave(storage).campaign.routeChoices.press, 'save');
 });
+
+test('Vineway stunt mastery survives validation and reload', () => {
+  const storage = memoryStorage();
+  const save = newSave();
+  save.campaign.mastered.push('vineway-receipt-run');
+  const stored = storeSave(save, storage);
+  assert.ok(stored.campaign.mastered.includes('vineway-receipt-run'));
+  assert.ok(loadSave(storage).campaign.mastered.includes('vineway-receipt-run'));
+});

@@ -725,6 +725,9 @@ function startSideview() {
     grappleAngle: 0, grappleAngularVelocity: 0, grappleWindup: 0, grappleGrace: 0, grappleMiss: 0, releaseFlash: 0,
     receipts: sideviewDefinition.receipts.map((receipt, id) => ({ ...receipt, id, collected: false })),
     receiptCount: 0,
+    flies: sideviewDefinition.flies.map((fly, id) => ({ ...fly, baseX: fly.x, id, defeated: false })),
+    flyCount: 0, hitCooldown: 0,
+    masteryAwarded: state.campaign.mastered.includes('vineway-receipt-run'), masteryFlash: 0,
   };
   state.contextTarget = null;
   attackButton.classList.remove('is-context');
@@ -1496,6 +1499,8 @@ function updateSideview(dt) {
   side.grappleMiss = Math.max(0, side.grappleMiss - dt);
   side.grappleGrace = Math.max(0, side.grappleGrace - dt);
   side.releaseFlash = Math.max(0, side.releaseFlash - dt);
+  side.hitCooldown = Math.max(0, side.hitCooldown - dt);
+  side.masteryFlash = Math.max(0, side.masteryFlash - dt);
   if (side.finishTimer > 0) {
     side.finishTimer -= dt;
     updateEffects(dt);
@@ -1614,6 +1619,46 @@ function updateSideview(dt) {
     burstParticles(receipt.x, receipt.y, '#ffcd54', 24, 165);
     state.shockwaves.push({ x: receipt.x, y: receipt.y, radius: 5, max: 55, life: .42, color: '#ffcd54' });
     sound('collect'); vibrate(11);
+  }
+  for (const fly of side.flies) {
+    if (fly.defeated) continue;
+    fly.x = fly.baseX + Math.sin(state.time * 1.25 + fly.phase) * fly.range;
+    fly.y = sideviewDefinition.flies[fly.id].y + Math.sin(state.time * 2.8 + fly.phase) * 16;
+    if (side.hitCooldown > 0 || Math.hypot(side.x - fly.x, side.y - 45 - fly.y) >= 46) continue;
+    const impactSpeed = Math.hypot(side.vx, side.vy);
+    if (impactSpeed >= 310 || side.dashTime > 0) {
+      fly.defeated = true;
+      side.flyCount += 1;
+      state.score += 75;
+      state.lastStraw = Math.min(state.maxStraw, state.lastStraw + 10);
+      side.vx *= 1.04; side.vy *= 1.04;
+      state.shockwaves.push({ x: fly.x, y: fly.y, radius: 8, max: 78, life: .48, color: '#d9ff45' });
+      burstParticles(fly.x, fly.y, '#d9ff45', 30, 210);
+      sound('heavy'); vibrate([10, 18, 8]);
+    } else {
+      releaseSideGrapple(false);
+      side.vx = (Math.sign(side.x - fly.x) || -side.direction) * 265;
+      side.vy = -255;
+      side.hitCooldown = .6;
+      state.flash = .22;
+      state.shake = prefersReducedMotion ? 3 : 7;
+      state.shockwaves.push({ x: fly.x, y: fly.y, radius: 6, max: 48, life: .32, color: '#ff4fa3' });
+      burstParticles(side.x, side.y - 42, '#ff4fa3', 13, 130);
+      sound('hurt'); vibrate(20);
+    }
+  }
+  if (!side.masteryAwarded && side.receiptCount === side.receipts.length && side.flyCount === side.flies.length) {
+    side.masteryAwarded = true;
+    side.masteryFlash = 1.8;
+    state.score += 300;
+    state.energy = Math.min(state.maxEnergy, state.energy + 15);
+    state.lastStraw = state.maxStraw;
+    state.campaign.mastered.push('vineway-receipt-run');
+    saveProgress('vineway-side-passage', 'vineway');
+    state.shockwaves.push({ x: side.x, y: side.y - 42, radius: 16, max: 170, life: .9, color: '#ffcd54' });
+    burstParticles(side.x, side.y - 52, '#ffcd54', 54, 260);
+    sound('clear'); vibrate([15, 30, 20]);
+    announce('Vineway receipt run mastered.');
   }
   const moved = Math.hypot(side.x - oldX, side.y - oldY);
   advanceAnimator(state.hero.animator, { distance: moved, dt, dashing: side.dashTime > 0 || Math.hypot(side.vx, side.vy) > 430, attacking: side.grapplePhase === 'windup', hurt: false, ultimate: false });
@@ -2288,6 +2333,28 @@ function drawSideReceipt(receipt) {
   ctx.restore();
 }
 
+function drawSideFly(fly, heroSpeed) {
+  if (fly.defeated) return;
+  const fast = heroSpeed >= 310 || state.sideview.dashTime > 0;
+  const near = Math.hypot(state.sideview.x - fly.x, state.sideview.y - 45 - fly.y) < 175;
+  const wing = prefersReducedMotion ? 1 : .82 + Math.sin(state.time * 18 + fly.phase) * .18;
+  ctx.save();
+  ctx.translate(fly.x, fly.y);
+  if (near) {
+    ctx.strokeStyle = fast ? '#d9ff45' : '#ff4fa3';
+    ctx.lineWidth = fast ? 5 : 3;
+    ctx.globalAlpha = .62 + Math.sin(state.time * 8) * .18;
+    ctx.shadowBlur = 18; ctx.shadowColor = ctx.strokeStyle;
+    ctx.beginPath(); ctx.arc(0, 0, fast ? 35 : 31, 0, Math.PI * 2); ctx.stroke();
+    ctx.globalAlpha = 1;
+  }
+  ctx.shadowBlur = fast && near ? 20 : 10;
+  ctx.shadowColor = fast && near ? '#d9ff45' : '#ff4fa3';
+  ctx.scale(Math.sign(Math.sin(state.time * .9 + fly.phase)) || 1, wing);
+  ctx.drawImage(images.moth, -29, -30, 58, 59);
+  ctx.restore();
+}
+
 function drawCompanion() {
   if (regions[state.regionIndex].key === 'root' && !objectiveComplete('root-companion')) return;
   const hero = state.hero;
@@ -2620,6 +2687,8 @@ function drawSideview() {
     }
     ctx.restore();
   }
+  const sideSpeed = Math.hypot(side.vx, side.vy);
+  for (const fly of side.flies) drawSideFly(fly, sideSpeed);
   for (const receipt of side.receipts) drawSideReceipt(receipt);
   if (side.grapplePhase === 'swing' && side.grappleIndex !== null) {
     const vine = sideviewDefinition.vines[side.grappleIndex];
@@ -2652,7 +2721,7 @@ function drawSideview() {
   const exitY = (exitFloor?.y || 530) - 72;
   const exitPulse = 1 + Math.sin(state.time * 5) * 0.08;
   ctx.save(); ctx.translate(sideviewDefinition.exitX + 35, exitY); ctx.scale(exitPulse, exitPulse);
-  ctx.strokeStyle = '#d9ff45'; ctx.lineWidth = 7; ctx.shadowBlur = 26; ctx.shadowColor = '#d9ff45';
+  ctx.strokeStyle = side.masteryAwarded ? '#ffcd54' : '#d9ff45'; ctx.lineWidth = 7; ctx.shadowBlur = 26; ctx.shadowColor = ctx.strokeStyle;
   ctx.beginPath(); ctx.arc(0, 0, 35, Math.PI, 0); ctx.lineTo(35, 42); ctx.moveTo(-35, 42); ctx.lineTo(-35, 0); ctx.stroke(); ctx.restore();
   const swingTilt = side.grapplePhase === 'swing'
     ? clamp(-side.grappleAngle * .15 + side.grappleAngularVelocity * .045, -.48, .48)
@@ -2673,6 +2742,25 @@ function drawSideview() {
   ctx.font = '1000 22px Inter, system-ui, sans-serif'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
   ctx.strokeText(`${side.receiptCount}/${side.receipts.length}`, side.cameraX + 105, 112);
   ctx.fillText(`${side.receiptCount}/${side.receipts.length}`, side.cameraX + 105, 112); ctx.restore();
+  ctx.save(); ctx.translate(side.cameraX + 183, 112);
+  for (let index = 0; index < side.flies.length; index += 1) {
+    const defeated = side.flies[index].defeated;
+    const x = index * 25;
+    ctx.fillStyle = defeated ? '#d9ff45' : 'rgba(255,248,220,.28)';
+    ctx.shadowBlur = defeated ? 12 : 0; ctx.shadowColor = '#d9ff45';
+    ctx.beginPath(); ctx.ellipse(x - 6, 0, 7, 4, -.45, 0, Math.PI * 2); ctx.ellipse(x + 6, 0, 7, 4, .45, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = defeated ? '#ffcd54' : 'rgba(255,79,163,.45)'; ctx.beginPath(); ctx.arc(x, 3, 4, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+  if (side.masteryFlash > 0) {
+    const life = clamp(side.masteryFlash / 1.8, 0, 1);
+    const bounce = 1 + Math.sin((1 - life) * Math.PI * 3) * .08 * life;
+    ctx.save(); ctx.translate(side.cameraX + viewport.width / scale * .5, 190); ctx.scale(bounce, bounce);
+    ctx.globalAlpha = Math.min(1, life * 2); ctx.fillStyle = '#ffcd54'; ctx.strokeStyle = '#32143f'; ctx.lineWidth = 5;
+    ctx.shadowBlur = 30; ctx.shadowColor = '#ffcd54';
+    ctx.beginPath(); ctx.moveTo(-42, -18); ctx.lineTo(-18, 4); ctx.lineTo(0, -30); ctx.lineTo(18, 4); ctx.lineTo(42, -18); ctx.lineTo(34, 25); ctx.lineTo(-34, 25); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
   drawParticles();
   if (side.x < 260) {
     ctx.globalAlpha = clamp(1 - side.x / 280, 0, 0.8);
