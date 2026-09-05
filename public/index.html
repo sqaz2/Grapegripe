@@ -38,11 +38,16 @@
           width="606"
           height="620"
         />
-        <button id="start-button" class="start-button" type="button" aria-label="Begin the journey">
-          <svg viewBox="0 0 100 100" aria-hidden="true">
-            <path d="M38 25 76 50 38 75Z" />
-          </svg>
-        </button>
+        <div class="start-actions">
+          <button id="start-button" class="start-button" type="button" aria-label="Begin the journey">
+            <svg viewBox="0 0 100 100" aria-hidden="true"><path d="M38 25 76 50 38 75Z" /></svg>
+            <span>NEW</span>
+          </button>
+          <button id="continue-button" class="continue-button" type="button" aria-label="Continue from the last safe checkpoint" hidden>
+            <svg viewBox="0 0 100 100" aria-hidden="true"><path d="M22 48h42L49 33l10-10 32 27-32 27-10-10 15-15H22Zm-9-30h12v64H13Z" /></svg>
+            <span>CONTINUE</span>
+          </button>
+        </div>
         <div class="start-waves" aria-hidden="true">
           <i></i><i></i><i></i><i class="boss-dot"></i>
         </div>
@@ -78,6 +83,10 @@
         <div id="boss-health" class="boss-health" hidden aria-label="Boss health">
           <svg viewBox="0 0 40 40" aria-hidden="true"><path d="m6 13 8 7 6-12 6 12 8-7-3 19H9Z" /></svg>
           <div><i id="boss-health-fill"></i></div>
+        </div>
+
+        <div id="objective-strip" class="objective-strip" aria-label="Mission objectives">
+          <i data-objective-slot="0"></i><i data-objective-slot="1"></i><i data-objective-slot="2"></i><i data-objective-slot="3"></i>
         </div>
       </section>
 
@@ -132,8 +141,11 @@
 
         <button id="attack-button" class="attack-button" type="button" aria-label="Attack">
           <span class="attack-glow" aria-hidden="true"></span>
-          <svg viewBox="0 0 84 84" aria-hidden="true">
+          <svg class="attack-icon" viewBox="0 0 84 84" aria-hidden="true">
             <path d="M22 58c-5-6-4-14 1-19l4-4V20c0-4 6-4 6 0v10-14c0-4 6-4 6 0v14-17c0-4 6-4 6 0v18-14c0-4 6-4 6 0v20l4-8c2-4 8-1 6 4l-7 17c-3 7-8 15-17 18-8 2-14-3-19-10Z" />
+          </svg>
+          <svg class="interact-icon" viewBox="0 0 84 84" aria-hidden="true">
+            <path d="M42 7c7 0 12 6 12 13v14h8c9 0 15 8 13 17l-3 13c-2 8-9 13-17 13H34c-6 0-11-3-14-8L8 48c-3-5 4-10 8-6l10 10V20c0-7 5-13 12-13Zm0 8c-3 0-5 2-5 5v30l-6 5 7 13h17c4 0 8-3 9-7l3-13c1-3-2-6-5-6H46V20c0-3-2-5-4-5Z" />
           </svg>
         </button>
       </div>
@@ -170,19 +182,46 @@
       </section>
 
       <section id="map-screen" class="map-screen" hidden aria-label="Journey map">
-        <div class="map-vine" aria-hidden="true">
-          <i class="map-line line-one"></i>
-          <i class="map-line line-two"></i>
-          <i class="map-line line-three"></i>
-          <span class="map-node cellar" data-map-region="0"><b>1</b><em>Root Cellar</em></span>
-          <span class="map-node vineway" data-map-region="1"><b>2</b><em>Vineway</em></span>
-          <span class="map-node press" data-map-region="2"><b>3</b><em>Press Pit</em></span>
-          <span class="map-node sourwood" data-map-region="3"><b>4</b><em>Sourwood</em></span>
+        <div class="map-vine">
+          <i class="map-line line-one" aria-hidden="true"></i>
+          <i class="map-line line-two" aria-hidden="true"></i>
+          <i class="map-line line-three" aria-hidden="true"></i>
+          <button type="button" class="map-node cellar" data-map-region="0" aria-label="Root Cellar"><b>1</b><em>Root Cellar</em></button>
+          <button type="button" class="map-node vineway" data-map-region="1" aria-label="Vineway"><b>2</b><em>Vineway</em></button>
+          <button type="button" class="map-node press" data-map-region="2" aria-label="Press Pit"><b>3</b><em>Press Pit</em></button>
+          <button type="button" class="map-node sourwood" data-map-region="3" aria-label="Sourwood"><b>4</b><em>Sourwood</em></button>
+          <span id="side-route-node" class="side-route-node" aria-label="Hidden Vineway passage"><b>↔</b></span>
         </div>
+        <div id="map-stamps" class="map-stamps" aria-label="Discoveries">
+          <i title="Root shortcut">⌁</i><i title="Vineway passage">↔</i><i title="Working press">◉</i><i title="Restored world">✦</i>
+        </div>
+        <button id="guide-button" class="guide-button" type="button" aria-label="Open the visual strategy guide">
+          <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M8 10h20c5 0 9 4 9 9v35c-3-4-7-6-12-6H8Zm48 0H44c-5 0-9 4-9 9v35c3-4 7-6 12-6h9Z" /><path d="M16 22h12M16 31h12m8-9h12m-12 9h12" /></svg>
+        </button>
         <div class="map-legend" aria-hidden="true">
           <i></i><i></i><i></i>
         </div>
         <button id="close-map-button" class="round-overlay-button map-close-button" type="button" aria-label="Close journey map">
+          <svg viewBox="0 0 100 100" aria-hidden="true"><path d="m29 29 42 42m0-42L29 71" /></svg>
+        </button>
+      </section>
+
+      <section id="field-guide-screen" class="field-guide-screen" hidden aria-label="Visual strategy guide">
+        <div id="guide-grid" class="guide-grid">
+          <article data-guide="sourling" aria-label="Dodge a Sourling's charge, then strike">
+            <img src="./assets/sourling.webp" alt="" /><span class="danger-line"></span><b>↗</b><i>✹</i>
+          </article>
+          <article data-guide="moth" aria-label="Circle a Rumor Moth's projectiles">
+            <img src="./assets/rumor-moth.webp" alt="" /><span class="orb">●</span><b>↺</b><i>✹</i>
+          </article>
+          <article data-guide="brute" aria-label="Let a Thorn Brute miss, then use a heavy third strike">
+            <img src="./assets/thorn-brute.webp" alt="" /><span class="danger-ring"></span><b>•••</b><i>✹</i>
+          </article>
+          <article data-guide="boss" aria-label="Power both vents and unleash the Grape Gripe on the Maw">
+            <img src="./assets/gripe-maw.webp" alt="" /><span class="twin-vents">◉ ◉</span><b>➜</b><i>◉</i>
+          </article>
+        </div>
+        <button id="close-guide-button" class="round-overlay-button map-close-button" type="button" aria-label="Close the visual strategy guide">
           <svg viewBox="0 0 100 100" aria-hidden="true"><path d="m29 29 42 42m0-42L29 71" /></svg>
         </button>
       </section>
@@ -196,6 +235,7 @@
           <svg viewBox="0 0 48 48" aria-hidden="true"><path d="m24 3 8 13 13 8-13 8-8 13-8-13-13-8 13-8Z" /></svg>
           <strong id="final-score">0</strong>
         </div>
+        <p id="ending-mark" class="ending-mark">THE VINEYARD BREATHES AGAIN</p>
         <button id="restart-button" class="round-overlay-button restart-button" type="button" aria-label="Battle again">
           <svg viewBox="0 0 100 100" aria-hidden="true">
             <path d="M79 30V11L68 22a35 35 0 1 0 8 48l-12-8a21 21 0 1 1-5-29L45 47h34Z" />

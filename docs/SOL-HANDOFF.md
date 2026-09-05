@@ -1,8 +1,8 @@
 # Grape Gripe — Sol build handoff
 
-The game needs reasons to make different decisions after the first clear. The next build should turn the four-region combat demo into a journey with distinct objectives, permanent discoveries, optional routes and a proper ending. More identical waves would add length without solving that problem.
+This brief guided the conversion of the four-region combat demo into a journey with distinct objectives, permanent discoveries, an optional route and a proper ending. More identical waves would have added length without solving that problem.
 
-This document is the proposed campaign and build sequence. Only the terrain, navigation, movement-animation controller and lifecycle fixes listed in `AUDIT.md` are implemented in this pass. Campaign persistence, new objectives, side-view rooms and the expanded ending are still to build.
+**Release status:** campaign persistence, varied objectives, the optional side-view passage, the staged ending, restoration loop, visual guide and rematch are implemented. The remaining material gap is a truly authored reusable character rig/atlas: the current side gait still has imperfect foot phases, and special actions are staged from the existing atlas.
 
 ## Preserve the user's decisions
 
@@ -42,12 +42,12 @@ All chapter mechanics must be taught in safe situations before appearing in a bo
 
 The current `encounterIndex` is a wave counter, not a quest system. Extract campaign state from presentation before adding more conditions to it.
 
-Proposed files (not present yet):
+Implemented files:
 
 - `public/engine/campaign.mjs`: pure campaign reducer, objective dependencies, completion and rewards.
 - `public/content/campaign.mjs`: stable IDs, room graph, objective definitions and reward choices.
 - `public/engine/save.mjs`: versioned save validation, migration, storage adapter and checkpoint recovery.
-- `public/scenes/`: top-down and optional side-view adapters after the first mission works.
+- `public/content/missions.mjs`: spatial mission props, encounter anchors and the side-view platform contract. The compact first release keeps both render adapters in `journey.js`; extraction into `public/scenes/` remains an optional refactor.
 
 Example content contract:
 
@@ -73,7 +73,7 @@ Emit events such as `targetActivated`, `encounterCleared`, `creatureRescued`, `s
 
 Content validation should reject duplicate IDs, unknown targets, missing exits, circular prerequisites and an ending with no reachable path. Keep `complete`, `available`, `discovered` and `mastered` separate. Finding a door does not mean completing its mission.
 
-## The first milestone Sol should deliver
+## The first milestone delivered
 
 **A repeatable Root Cellar mission with two relays, one battle, a saved shortcut and a visible change.**
 
@@ -144,7 +144,7 @@ The proposed Gripe Maw finale:
 
 Keep the finale recoverable. Missing a window starts another readable cycle. Losing cannot remove required abilities or consume a unique item permanently. The checkpoint is immediately before the boss. Winning grants the ending and world change once; re-entering offers an explicit rematch.
 
-The current ultimate is a damage/stun burst with shockwave circles. It does **not** contain this storyboard yet. Build its animation with anticipation, release, impact, recovery and the companion's reaction; time damage to the release event. Ensure the joke reads without captions and with reduced camera motion.
+The release ultimate retains the damage/stun burst and adds anticipation, a giant cork pull, the companion's earmuffs, release impact and recovery. Damage is timed to release, and the simplified joke reads without captions and with reduced camera motion. A future authored character rig can replace the staged atlas transforms without changing the combat rule.
 
 ## Reasons to return after winning
 

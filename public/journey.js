@@ -2,6 +2,10 @@ import { Terrain } from './engine/terrain.mjs';
 import { terrainDefinitions } from './engine/terrain-data.mjs';
 import { createAnimator, advanceAnimator, sampleAnimation } from './engine/animation.mjs';
 import { heroAtlas } from './engine/hero-atlas.mjs';
+import { campaignChapters } from './content/campaign.mjs';
+import { missionDefinitions, sideviewDefinition } from './content/missions.mjs';
+import { applyCampaignEvent, chapterComplete, createCampaignState, objectiveAvailable } from './engine/campaign.mjs';
+import { loadSave, newSave, removeSave, storeSave } from './engine/save.mjs';
 
 const $ = (id) => document.getElementById(id);
 
@@ -11,6 +15,7 @@ const shell = $('game-shell');
 const loadingScreen = $('loading-screen');
 const startScreen = $('start-screen');
 const startButton = $('start-button');
+const continueButton = $('continue-button');
 const hud = $('hud');
 const healthFill = $('health-fill');
 const energyCount = $('energy-count');
@@ -23,6 +28,9 @@ const pauseScreen = $('pause-screen');
 const resumeButton = $('resume-button');
 const mapScreen = $('map-screen');
 const closeMapButton = $('close-map-button');
+const guideButton = $('guide-button');
+const guideScreen = $('field-guide-screen');
+const closeGuideButton = $('close-guide-button');
 const joystickZone = $('joystick-zone');
 const joystickBase = $('joystick-base');
 const joystickKnob = $('joystick-knob');
@@ -36,6 +44,9 @@ const endScreen = $('end-screen');
 const finalScore = $('final-score');
 const restartButton = $('restart-button');
 const liveStatus = $('live-status');
+const objectiveStrip = $('objective-strip');
+const sideRouteNode = $('side-route-node');
+const mapStamps = $('map-stamps');
 
 const imagePaths = {
   root: './assets/root-cellar.webp',
@@ -50,6 +61,7 @@ const imagePaths = {
   moth: './assets/rumor-moth.webp',
   brute: './assets/thorn-brute.webp',
   boss: './assets/gripe-maw.webp',
+  sideview: './assets/vineway-sideview.webp',
 };
 
 const regions = [
@@ -167,6 +179,15 @@ const state = {
   spawnQueue: [],
   ambience: [],
   ultimate: null,
+  campaign: createCampaignState(),
+  checkpoint: { chapterId: 'root', anchorId: 'root-start' },
+  mission: null,
+  carried: null,
+  contextTarget: null,
+  sideview: null,
+  bossFinale: null,
+  endingSeen: false,
+  persistenceAvailable: true,
 };
 
 function clamp(value, min, max) {
@@ -212,6 +233,69 @@ function currentTerrainData() {
 
 function asPoint(value) {
   return { x: value[0], y: value[1] };
+}
+
+function currentMissionDefinition() {
+  return missionDefinitions[regions[state.regionIndex].key];
+}
+
+function objectiveComplete(id) {
+  return state.campaign.completed.includes(id);
+}
+
+function saveProgress(anchorId = `${regions[state.regionIndex].key}-start`, chapterId = regions[state.regionIndex].key) {
+  const envelope = newSave();
+  envelope.campaign = state.campaign;
+  envelope.checkpoint = { chapterId, anchorId };
+  envelope.run = { score: state.score, energy: state.energy, upgrades: { ...state.upgrades }, endingSeen: state.endingSeen };
+  envelope.preferences.sound = state.sound;
+  const stored = storeSave(envelope);
+  state.persistenceAvailable = Boolean(stored);
+  if (stored) state.checkpoint = stored.checkpoint;
+  return Boolean(stored);
+}
+
+function completeObjective(objectiveId, options = {}) {
+  const result = applyCampaignEvent(state.campaign, {
+    type: 'complete', objectiveId,
+    chapterId: regions[state.regionIndex].key,
+    routeChoice: options.routeChoice,
+  });
+  if (!result.changed) return false;
+  state.campaign = result.state;
+  state.score += options.score ?? 55;
+  state.energy += options.energy ?? 4;
+  state.lastStraw = clamp(state.lastStraw + (options.straw ?? 14), 0, state.maxStraw);
+  state.shockwaves.push({ x: options.x ?? state.hero.x, y: options.y ?? state.hero.y, radius: 10, max: 145, life: 0.75, color: '#d9ff45' });
+  burstParticles(options.x ?? state.hero.x, options.y ?? state.hero.y, '#d9ff45', 28, 185);
+  sound('clear');
+  vibrate([12, 24, 22]);
+  saveProgress(options.anchorId);
+  updateRouteUI();
+  updateObjectiveUI();
+  return true;
+}
+
+function applySavedRun(save) {
+  state.campaign = createCampaignState(save?.campaign);
+  state.checkpoint = save?.checkpoint || { chapterId: 'root', anchorId: 'root-start' };
+  state.score = save?.run?.score || 0;
+  state.energy = save?.run?.energy || 0;
+  state.upgrades = { power: 0, speed: 0, shield: 0, ...(save?.run?.upgrades || {}) };
+  state.endingSeen = Boolean(save?.run?.endingSeen);
+  state.sound = save?.preferences?.sound !== false;
+  soundButton.setAttribute('aria-pressed', String(state.sound));
+  soundButton.setAttribute('aria-label', state.sound ? 'Turn sound off' : 'Turn sound on');
+}
+
+function applyUpgradeStats() {
+  const hero = state.hero;
+  hero.damage = 2.2 + state.upgrades.power * 0.95;
+  hero.speed = 150 + state.upgrades.speed * 17;
+  hero.attackRate = 1 + state.upgrades.speed * 0.1;
+  hero.dashMaxCooldown = Math.max(1.25, 2.1 - state.upgrades.speed * 0.17);
+  hero.maxHealth = 100 + state.upgrades.shield * 18;
+  hero.health = hero.maxHealth;
 }
 
 function moveActor(entity, dx, dy) {
@@ -295,7 +379,8 @@ function resetHero() {
   };
 }
 
-function resetGame() {
+function resetGame(options = {}) {
+  const continuing = Boolean(options.continueSave);
   state.time = 0;
   state.score = 0;
   state.energy = 0;
@@ -303,12 +388,20 @@ function resetGame() {
   state.regionIndex = 0;
   state.pendingRegion = 0;
   state.upgrades = { power: 0, speed: 0, shield: 0 };
+  state.campaign = createCampaignState();
+  state.checkpoint = { chapterId: 'root', anchorId: 'root-start' };
+  state.endingSeen = false;
   state.tutorial = readSaved('grape-gripe-journey-tutorial') === 'done' ? 2 : 0;
   state.clearTimer = 0;
   accumulator = 0;
   clearInput();
   resetHero();
-  enterRegion(0, true);
+  if (continuing) applySavedRun(options.continueSave);
+  else removeSave();
+  applyUpgradeStats();
+  const chapterIndex = Math.max(0, regions.findIndex((region) => region.key === state.checkpoint.chapterId));
+  enterRegion(chapterIndex, true, state.checkpoint.anchorId);
+  if (!continuing) saveProgress('root-start');
 }
 
 function showGameControls(show) {
@@ -325,11 +418,12 @@ function hideOverlays() {
   startScreen.hidden = true;
   pauseScreen.hidden = true;
   mapScreen.hidden = true;
+  guideScreen.hidden = true;
   upgradeScreen.hidden = true;
   endScreen.hidden = true;
 }
 
-function enterRegion(index, fresh = false) {
+function enterRegion(index, fresh = false, anchorId = null) {
   clearInput();
   state.regionIndex = index;
   state.pendingRegion = index;
@@ -347,12 +441,32 @@ function enterRegion(index, fresh = false) {
   state.shockwaves = [];
   state.spawnQueue = [];
   state.ultimate = null;
+  state.carried = null;
+  state.contextTarget = null;
+  state.sideview = null;
+  state.bossFinale = null;
   state.guidance = { route: [], timer: 0, revision: -1 };
   hideOverlays();
   configureWorld();
   state.terrain.setGates();
   const data = currentTerrainData();
-  Object.assign(state.hero, asPoint(data.spawn), {
+  const mission = currentMissionDefinition();
+  state.mission = {
+    props: mission.props.map((prop) => ({ ...prop, ...asPoint(prop.position), pulse: Math.random() * Math.PI * 2 })),
+    encounters: mission.encounters.map((encounter) => ({ ...encounter, ...asPoint(encounter.position), triggered: Boolean(encounter.objectiveId && objectiveComplete(encounter.objectiveId)), cleared: Boolean(encounter.objectiveId && objectiveComplete(encounter.objectiveId)) })),
+  };
+  if (state.endingSeen && regions[index].key === 'sourwood') {
+    const rematch = state.mission.encounters.find((encounter) => encounter.id === 'gripe-maw');
+    if (rematch) Object.assign(rematch, { objectiveId: null, triggered: false, cleared: false, rematch: true });
+  }
+  if (regions[index].key === 'press' && objectiveComplete('press-cork-found') && !objectiveComplete('press-cork-delivered')) state.carried = 'press-cork';
+  let spawn = asPoint(mission.anchor || data.spawn);
+  if (anchorId?.includes('lift') || anchorId?.includes('bridge') || anchorId?.includes('platform') || anchorId?.includes('bloom')) spawn = state.terrain.project({ x: data.exit[0], y: data.exit[1] + 85 }, state.hero.footRadius) || spawn;
+  if (anchorId === 'vineway-side-passage') {
+    const passage = mission.props.find((prop) => prop.id === 'vineway-passage');
+    spawn = state.terrain.project({ x: passage.position[0], y: passage.position[1] + 72 }, state.hero.footRadius) || spawn;
+  }
+  Object.assign(state.hero, spawn, {
     vx: 0, vy: 0, direction: 6, facingX: 0, facingY: -1,
     dashTime: 0, attackAnim: 0, trail: [], animator: createAnimator(),
   });
@@ -364,7 +478,8 @@ function enterRegion(index, fresh = false) {
   showGameControls(true);
   tuneDrone();
   updateUI();
-  announce(`${regions[index].name}. Follow the glowing path.`);
+  updateObjectiveUI();
+  announce(`${regions[index].name}. Follow the living markers.`);
 }
 
 function beginTravel() {
@@ -376,6 +491,8 @@ function beginTravel() {
   }
   state.mode = 'travel';
   state.pendingRegion = state.regionIndex + 1;
+  state.checkpoint = { chapterId: regions[state.pendingRegion].key, anchorId: `${regions[state.pendingRegion].key}-start` };
+  saveProgress(state.checkpoint.anchorId, state.checkpoint.chapterId);
   state.travelTimer = prefersReducedMotion ? 0.8 : 2.65;
   showGameControls(false);
   sound('travel');
@@ -383,7 +500,8 @@ function beginTravel() {
 }
 
 function completeRegion() {
-  if (state.regionClear) return;
+  const chapterId = regions[state.regionIndex].key;
+  if (state.regionClear || !chapterComplete(state.campaign, chapterId)) return;
   state.regionClear = true;
   state.score += 75 + state.regionIndex * 25;
   state.energy += 5;
@@ -483,8 +601,106 @@ function nearestEnemy(origin = state.hero, maxDistance = Infinity) {
   return best;
 }
 
+function propReady(prop) {
+  if (prop.kind === 'lift') return chapterComplete(state.campaign, regions[state.regionIndex].key);
+  if (prop.kind === 'cork') return !state.carried && !objectiveComplete('press-cork-delivered');
+  if (prop.kind === 'socket') return state.carried === 'press-cork' && objectiveAvailable(state.campaign, prop.objectiveId);
+  if (prop.kind === 'passage') return objectiveAvailable(state.campaign, prop.objectiveId) || objectiveComplete(prop.objectiveId);
+  if (prop.kind.startsWith('route-')) return objectiveAvailable(state.campaign, prop.objectiveId);
+  return prop.objectiveId ? objectiveAvailable(state.campaign, prop.objectiveId) : false;
+}
+
+function updateContextTarget() {
+  if (!state.mission || state.mode !== 'playing') { state.contextTarget = null; return; }
+  let best = null;
+  let bestDistance = Infinity;
+  for (const prop of state.mission.props) {
+    if (!propReady(prop)) continue;
+    const d = distance(prop, state.hero);
+    if (d <= prop.radius + 26 && d < bestDistance) { best = prop; bestDistance = d; }
+  }
+  state.contextTarget = best;
+  attackButton.classList.toggle('is-context', Boolean(best));
+  attackButton.setAttribute('aria-label', best ? 'Use nearby object' : 'Attack');
+}
+
+function startSideview() {
+  clearInput();
+  state.mode = 'sideview';
+  state.sideview = {
+    x: sideviewDefinition.spawn.x, y: sideviewDefinition.spawn.y,
+    vx: 0, vy: 0, grounded: false, checkpointX: sideviewDefinition.spawn.x,
+    cameraX: 0, direction: 0, dashTime: 0, dashCooldown: 0, actionCooldown: 0, finishTimer: 0,
+  };
+  state.contextTarget = null;
+  attackButton.classList.remove('is-context');
+  showGameControls(true);
+  mapButton.hidden = true;
+  companionButton.disabled = true;
+  announce('A hidden passage. Keep moving toward the light.');
+}
+
+function finishSideview() {
+  if (!state.sideview || state.sideview.finishTimer > 0) return;
+  completeObjective('vineway-passage', { score: 180, energy: 15, straw: 30, x: state.hero.x, y: state.hero.y, anchorId: 'vineway-side-passage' });
+  state.sideview.finishTimer = 0.75;
+  sound('secret');
+}
+
+function useContextTarget() {
+  const prop = state.contextTarget;
+  if (!prop || !propReady(prop)) return false;
+  if (prop.kind === 'lift') { completeRegion(); return true; }
+  if (prop.kind === 'passage') { startSideview(); return true; }
+  if (prop.kind.startsWith('route-')) {
+    completeObjective(prop.objectiveId, { routeChoice: prop.routeChoice, x: prop.x, y: prop.y, score: prop.routeChoice === 'bridge' ? 75 : 55 });
+    return true;
+  }
+  if (prop.kind === 'cork') {
+    if (!objectiveComplete(prop.objectiveId)) completeObjective(prop.objectiveId, { x: prop.x, y: prop.y, score: 45, energy: 2 });
+    state.carried = 'press-cork';
+    sound('secret');
+    return true;
+  }
+  if (prop.kind === 'socket' && state.carried === 'press-cork') {
+    state.carried = null;
+    completeObjective(prop.objectiveId, { x: prop.x, y: prop.y, score: 90, energy: 6, anchorId: 'press-cork' });
+    return true;
+  }
+  if (prop.objectiveId) {
+    completeObjective(prop.objectiveId, { x: prop.x, y: prop.y });
+    return true;
+  }
+  return false;
+}
+
+function dropCork() {
+  if (state.carried !== 'press-cork') return false;
+  const cork = state.mission?.props.find((prop) => prop.id === 'press-cork');
+  if (cork) { cork.x = state.hero.x; cork.y = state.hero.y; }
+  state.carried = null;
+  state.shockwaves.push({ x: state.hero.x, y: state.hero.y, radius: 6, max: 52, life: 0.35, color: '#ffd462' });
+  vibrate(12);
+  return true;
+}
+
+function sideviewAction() {
+  if (state.mode !== 'sideview' || !state.sideview) return false;
+  const side = state.sideview;
+  if (side.actionCooldown > 0) return false;
+  side.actionCooldown = 0.24;
+  burstParticles(side.x, side.y - 45, '#d9ff45', 11, 120);
+  side.vx += side.direction >= 0 ? 90 : -90;
+  sound('attack');
+  return true;
+}
+
 function attack() {
+  if (state.mode === 'sideview') return sideviewAction();
   if (state.mode !== 'playing' || !state.hero || state.hero.attackCooldown > 0 || state.ultimate) return false;
+  updateContextTarget();
+  if (state.contextTarget && useContextTarget()) return true;
+  if (state.carried === 'press-cork') return dropCork();
   const hero = state.hero;
   const target = nearestEnemy(hero, 340);
   let vector = directionVector(hero.direction);
@@ -527,6 +743,18 @@ function attack() {
 }
 
 function dash() {
+  if (state.mode === 'sideview' && state.sideview) {
+    const side = state.sideview;
+    if (side.dashCooldown > 0 || side.finishTimer > 0) return;
+    let direction = Math.sign(input.joyX) || side.direction || 1;
+    side.direction = direction;
+    side.dashTime = 0.24;
+    side.dashCooldown = 1.1;
+    side.vx = direction * 540;
+    if (!side.grounded) side.vy = Math.min(side.vy, -110);
+    sound('dash'); vibrate(16);
+    return;
+  }
   if (state.mode !== 'playing' || state.hero.dashCooldown > 0 || state.ultimate) return;
   const hero = state.hero;
   let x = input.joyX;
@@ -547,7 +775,7 @@ function dash() {
 }
 
 function unleashGripe() {
-  if (state.mode !== 'playing' || state.lastStraw < state.maxStraw || state.ultimate) return;
+  if (state.mode !== 'playing' || !objectiveComplete('root-companion') || state.lastStraw < state.maxStraw || state.ultimate) return;
   state.lastStraw = 0;
   state.ultimate = { time: 0, fired: false };
   state.hero.invulnerable = 1.7;
@@ -609,15 +837,22 @@ function spawnEnemy(typeName, anchor = asPoint(currentTerrainData().encounters[s
 }
 
 function triggerEncounter(encounter) {
-  const anchor = asPoint(currentTerrainData().encounters[state.encounterIndex]);
+  const anchor = { x: encounter.x, y: encounter.y };
   const y = anchor.y - 96;
   const segments = state.terrain.spansAt(y).map(([left, right]) => ({ a: { x: left, y }, b: { x: right, y }, radius: 4 }));
   state.terrain.setGates(segments);
-  state.gate = { y, segments, clearTimer: 0, active: true };
+  state.gate = { y, segments, clearTimer: 0, active: true, encounter };
+  encounter.triggered = true;
   input.tapTarget = null; input.route = [];
-  state.spawnQueue = encounter.types.map((type, index) => ({ type, delay: index * 0.38, anchor, retries: 0 }));
+  const routeChoice = state.campaign.routeChoices.vineway;
+  const roster = encounter.id === 'vineway-guardian' && routeChoice === 'long' ? ['moth', 'sourling'] : encounter.types;
+  state.spawnQueue = roster.map((type, index) => ({ type, delay: index * 0.38, anchor, retries: 0 }));
+  if (encounter.id === 'gripe-maw') {
+    state.lastStraw = state.maxStraw;
+    state.bossFinale = { phase: 'core', time: 0, fired: false };
+  }
   state.shockwaves.push({ ...anchor, radius: 12, max: 95, life: 0.75, color: '#ff4c70' });
-  announce('A thorn gate closes. Clear the path.');
+  announce(encounter.id === 'gripe-maw' ? 'The Gripe Maw opens. Break it with the Grape Gripe.' : 'A thorn gate closes. Clear the path.');
 }
 
 function spawnHostileBolt(enemy, angle, speed = 155) {
@@ -659,7 +894,16 @@ function executeEnemyAttack(enemy) {
 
 function hitEnemy(enemy, damage, ultimate = false) {
   if (enemy.dead) return;
+  const finaleBoss = enemy.type === 'boss' && regions[state.regionIndex].key === 'sourwood';
+  const rematch = finaleBoss && state.gate?.encounter?.id === 'gripe-maw' && state.gate.encounter.rematch;
+  if (finaleBoss && !rematch && !objectiveAvailable(state.campaign, 'sourwood-maw')) {
+    enemy.hitFlash = 0.08;
+    state.shockwaves.push({ x: enemy.x, y: enemy.y, radius: enemy.radius, max: enemy.radius * 1.35, life: 0.22, color: '#ff4c70' });
+    return;
+  }
+  if (finaleBoss) damage = ultimate ? enemy.hp + 1 : damage * 0.34;
   enemy.hp -= damage;
+  if (finaleBoss && !ultimate) enemy.hp = Math.max(1, enemy.hp);
   enemy.hitFlash = 0.12;
   const angle = Math.atan2(enemy.y - state.hero.y, enemy.x - state.hero.x);
   enemy.vx += Math.cos(angle) * (ultimate ? 155 : 48);
@@ -701,6 +945,14 @@ function killEnemy(enemy) {
   state.shockwaves.push({ x: enemy.x, y: enemy.y, radius: 10, max: enemy.radius * 2.8, life: 0.52, color: enemy.type === 'boss' ? '#ffae45' : '#a45add' });
   burstParticles(enemy.x, enemy.y, enemy.type === 'boss' ? '#ffae45' : '#8e42d0', enemy.type === 'boss' ? 58 : 20, enemy.type === 'boss' ? 275 : 155);
   if (enemy.type === 'boss') state.shake = prefersReducedMotion ? 6 : 22;
+  if (!state.campaign.mastered.includes(enemy.type)) {
+    state.campaign.mastered.push(enemy.type);
+    saveProgress();
+  }
+  if (enemy.type === 'boss' && regions[state.regionIndex].key === 'sourwood') {
+    completeObjective('sourwood-maw', { x: enemy.x, y: enemy.y, score: 300, energy: 20, straw: 0, anchorId: 'sourwood-boss' });
+    state.bossFinale = { phase: 'payoff', time: 0, fired: true };
+  }
 }
 
 function damageHero(amount) {
@@ -738,16 +990,17 @@ function updateMovement(dt) {
   if (length > 1) { x /= length; y /= length; }
   if (length > 0.12) setDirection(hero, x, y);
   const dashing = hero.dashTime > 0;
+  const movementSpeed = hero.speed * (state.carried ? 0.76 : 1);
   if (dashing) {
     hero.dashTime = Math.max(0, hero.dashTime - dt);
-    hero.vx = hero.dashX * hero.speed * 3.45;
-    hero.vy = hero.dashY * hero.speed * 3.45;
+    hero.vx = hero.dashX * movementSpeed * 3.45;
+    hero.vy = hero.dashY * movementSpeed * 3.45;
     hero.trail.unshift({ x: hero.x, y: hero.y, direction: hero.direction, life: 0.28, pose: sampleAnimation(hero.animator, hero.direction) });
     if (hero.trail.length > 5) hero.trail.pop();
   } else {
     const easing = 1 - Math.exp(-dt * 12);
-    hero.vx += (x * hero.speed - hero.vx) * easing;
-    hero.vy += (y * hero.speed - hero.vy) * easing;
+    hero.vx += (x * movementSpeed - hero.vx) * easing;
+    hero.vy += (y * movementSpeed - hero.vy) * easing;
   }
   const movement = moveActor(hero, hero.vx * dt, hero.vy * dt);
   advanceAnimator(hero.animator, { distance: movement.moved, dt, dashing, attacking: hero.attackAnim > 0, hurt: hero.shieldPulse > 0, ultimate: Boolean(state.ultimate) });
@@ -846,6 +1099,15 @@ function updateBolts(dt) {
     }
     bolt.x += bolt.vx * dt;
     bolt.y += bolt.vy * dt;
+    if (bolt.heavy) {
+      const vent = state.mission?.props.find((prop) => prop.kind === 'vent' && prop.objectiveId && objectiveAvailable(state.campaign, prop.objectiveId) && distance(bolt, prop) < bolt.radius + prop.radius);
+      if (vent) {
+        completeObjective(vent.objectiveId, { x: vent.x, y: vent.y, score: 70, energy: 5 });
+        explodeBolt(bolt, null);
+        bolt.life = 0;
+      }
+    }
+    if (bolt.life <= 0) continue;
     for (const enemy of state.enemies) {
       if (enemy.dead || distance(bolt, enemy) > bolt.radius + enemy.radius) continue;
       hitEnemy(enemy, bolt.damage);
@@ -945,10 +1207,14 @@ function updateEffects(dt) {
 }
 
 function updateEncounter(dt) {
-  const encounters = regions[state.regionIndex].encounters;
-  const nextEncounter = encounters[state.encounterIndex];
-  const anchor = currentTerrainData().encounters[state.encounterIndex];
-  if (!state.gate && nextEncounter && state.hero.y <= anchor[1] + 100) triggerEncounter(nextEncounter);
+  if (!state.gate) {
+    const encounter = state.mission?.encounters.find((item) => {
+      if (item.triggered || item.cleared) return false;
+      if (item.objectiveId && !objectiveAvailable(state.campaign, item.objectiveId)) return false;
+      return distance(item, state.hero) <= item.trigger;
+    });
+    if (encounter) triggerEncounter(encounter);
+  }
   for (const spawn of state.spawnQueue) spawn.delay -= dt;
   const ready = state.spawnQueue.filter((spawn) => spawn.delay <= 0);
   state.spawnQueue = state.spawnQueue.filter((spawn) => spawn.delay > 0);
@@ -958,6 +1224,11 @@ function updateEncounter(dt) {
   if (state.gate?.active && state.spawnQueue.length === 0 && state.enemies.length === 0) {
     state.gate.clearTimer += dt;
     if (state.gate.clearTimer > 0.55) {
+      const encounter = state.gate.encounter;
+      encounter.cleared = true;
+      if (encounter.objectiveId && !objectiveComplete(encounter.objectiveId)) {
+        completeObjective(encounter.objectiveId, { x: encounter.x, y: encounter.y, score: encounter.id === 'gripe-maw' ? 250 : 85, energy: 7, anchorId: `${regions[state.regionIndex].key}-${encounter.id}` });
+      }
       state.encounterIndex++;
       state.lastStraw = clamp(state.lastStraw + 10, 0, state.maxStraw);
       state.energy += 3; state.score += 30;
@@ -968,7 +1239,8 @@ function updateEncounter(dt) {
       updateRouteUI();
     }
   }
-  if (!state.gate && state.encounterIndex >= encounters.length && distance(state.hero, asPoint(currentTerrainData().exit)) < 44) completeRegion();
+  const exit = state.mission?.props.find((prop) => prop.kind === 'lift');
+  if (!state.gate && exit && chapterComplete(state.campaign, regions[state.regionIndex].key) && distance(state.hero, exit) < 48) completeRegion();
 }
 
 function updateUltimate(dt) {
@@ -987,8 +1259,79 @@ function updateCamera(amount = 0.12) {
   state.camera.y = lerp(state.camera.y, targetY, amount);
 }
 
+function sidePlatformAt(x) {
+  return sideviewDefinition.platforms.find((platform) => x >= platform.x && x <= platform.x + platform.width) || null;
+}
+
+function updateSideview(dt) {
+  const side = state.sideview;
+  if (!side) return;
+  state.time += dt;
+  side.dashCooldown = Math.max(0, side.dashCooldown - dt);
+  side.actionCooldown = Math.max(0, side.actionCooldown - dt);
+  side.dashTime = Math.max(0, side.dashTime - dt);
+  if (side.finishTimer > 0) {
+    side.finishTimer -= dt;
+    updateEffects(dt);
+    if (side.finishTimer <= 0) enterRegion(1, false, 'vineway-side-passage');
+    return;
+  }
+  let xInput = input.joyX;
+  if (input.keys.has('arrowleft') || input.keys.has('a')) xInput -= 1;
+  if (input.keys.has('arrowright') || input.keys.has('d')) xInput += 1;
+  xInput = clamp(xInput, -1, 1);
+  if (Math.abs(xInput) > 0.12) side.direction = Math.sign(xInput);
+  if (side.dashTime <= 0) side.vx += (xInput * 205 - side.vx) * (1 - Math.exp(-dt * 11));
+  side.vy += 970 * dt;
+
+  const currentPlatform = sidePlatformAt(side.x);
+  const lookAhead = side.x + (side.direction || 1) * 34;
+  if (side.grounded && Math.abs(xInput) > 0.3 && !sidePlatformAt(lookAhead)) {
+    side.vy = -355;
+    side.grounded = false;
+    state.shockwaves.push({ x: side.x, y: side.y, radius: 4, max: 38, life: 0.28, color: '#d9ff45' });
+  }
+
+  const oldX = side.x;
+  const oldY = side.y;
+  side.x = clamp(side.x + side.vx * dt, 24, sideviewDefinition.width - 24);
+  let nextY = side.y + side.vy * dt;
+  const landing = sidePlatformAt(side.x);
+  side.grounded = false;
+  if (landing && side.vy >= 0 && oldY <= landing.y + 12 && nextY >= landing.y) {
+    nextY = landing.y;
+    side.vy = 0;
+    side.grounded = true;
+  } else if (currentPlatform && side.vy >= 0 && side.x >= currentPlatform.x && side.x <= currentPlatform.x + currentPlatform.width && oldY <= currentPlatform.y + 12 && nextY >= currentPlatform.y) {
+    nextY = currentPlatform.y;
+    side.vy = 0;
+    side.grounded = true;
+  }
+  side.y = nextY;
+  for (const checkpoint of sideviewDefinition.checkpoints) if (side.x >= checkpoint) side.checkpointX = checkpoint;
+  if (side.y > 760) {
+    side.x = side.checkpointX;
+    const platform = sidePlatformAt(side.x);
+    side.y = (platform?.y || sideviewDefinition.floor) - 28;
+    side.vx = 0; side.vy = 0;
+    state.flash = 0.22;
+    vibrate(20);
+  }
+  const moved = Math.hypot(side.x - oldX, side.y - oldY);
+  advanceAnimator(state.hero.animator, { distance: moved, dt, dashing: side.dashTime > 0, attacking: false, hurt: false, ultimate: false });
+  state.hero.direction = side.direction >= 0 ? 0 : 4;
+  const sideScale = viewport.height / 720;
+  const sideViewWidth = viewport.width / sideScale;
+  side.cameraX = lerp(side.cameraX, clamp(side.x - sideViewWidth * 0.38, 0, Math.max(0, sideviewDefinition.width - sideViewWidth)), 1 - Math.exp(-dt * 6));
+  if (side.x >= sideviewDefinition.exitX) finishSideview();
+  if (input.attackHeld || input.keys.has(' ')) sideviewAction();
+  updateEffects(dt);
+  updateUI();
+}
+
 function update(dt) {
-  if (!['playing', 'clearing', 'travel', 'start'].includes(state.mode)) return;
+  if (!['playing', 'clearing', 'travel', 'start', 'sideview'].includes(state.mode)) return;
+  if (state.mode === 'sideview') { updateSideview(dt); return; }
   state.time += dt;
   if (state.mode === 'clearing') {
     state.clearTimer -= dt;
@@ -1014,6 +1357,7 @@ function update(dt) {
   state.regionIntro = Math.max(0, state.regionIntro - dt);
 
   updateMovement(dt);
+  updateContextTarget();
   updateEnemies(dt);
   if (state.mode !== 'playing') return;
   updateBolts(dt);
@@ -1021,6 +1365,7 @@ function update(dt) {
   updatePickups(dt);
   updateEncounter(dt);
   updateUltimate(dt);
+  if (state.bossFinale) state.bossFinale.time += dt;
   updateEffects(dt);
   updateCamera(1 - Math.exp(-dt * 7));
   if (input.attackHeld || input.keys.has(' ')) attack();
@@ -1048,6 +1393,8 @@ function chooseUpgrade(type) {
     state.hero.health = Math.min(state.hero.maxHealth, state.hero.health + 35);
   }
   upgradeScreen.hidden = true;
+  state.checkpoint = { chapterId: regions[state.pendingRegion].key, anchorId: `${regions[state.pendingRegion].key}-start` };
+  saveProgress(state.checkpoint.anchorId, state.checkpoint.chapterId);
   enterRegion(state.pendingRegion);
 }
 
@@ -1060,7 +1407,11 @@ function finishGame(won) {
   endScreen.hidden = false;
   endScreen.classList.toggle('is-loss', !won);
   finalScore.textContent = Math.round(state.score).toLocaleString();
+  $('ending-mark').textContent = won ? 'THE VINEYARD BREATHES AGAIN' : 'THE VINEYARD NEEDS ANOTHER TRY';
   if (won) {
+    state.endingSeen = true;
+    state.checkpoint = { chapterId: 'root', anchorId: 'root-restored' };
+    saveProgress(state.checkpoint.anchorId, state.checkpoint.chapterId);
     sound('win');
     writeSaved('grape-gripe-best-score', String(Math.max(Number(readSaved('grape-gripe-best-score') || 0), state.score)));
     announce('The Sourwood is uncorked. Journey complete.');
@@ -1068,7 +1419,7 @@ function finishGame(won) {
 }
 
 function pauseGame() {
-  if (!['playing', 'clearing', 'travel'].includes(state.mode)) return;
+  if (!['playing', 'clearing', 'travel', 'sideview'].includes(state.mode)) return;
   clearInput();
   state.returnMode = state.mode;
   state.mode = 'paused';
@@ -1083,7 +1434,8 @@ function resumeGame() {
   clearInput();
   state.mode = state.returnMode;
   pauseScreen.hidden = true;
-  showGameControls(state.mode === 'playing');
+  showGameControls(state.mode === 'playing' || state.mode === 'sideview');
+  if (state.mode === 'sideview') mapButton.hidden = true;
   accumulator = 0;
   lastFrame = performance.now();
 }
@@ -1097,6 +1449,7 @@ function openMap() {
   showGameControls(false);
   mapButton.hidden = false;
   updateRouteUI();
+  updateGuideUI();
 }
 
 function closeMap() {
@@ -1109,6 +1462,25 @@ function closeMap() {
   lastFrame = performance.now();
 }
 
+function updateGuideUI() {
+  document.querySelectorAll('[data-guide]').forEach((card) => card.classList.toggle('unlocked', state.campaign.mastered.includes(card.dataset.guide)));
+}
+
+function openGuide() {
+  if (state.mode !== 'map') return;
+  mapScreen.hidden = true;
+  guideScreen.hidden = false;
+  state.mode = 'guide';
+  updateGuideUI();
+}
+
+function closeGuide() {
+  if (state.mode !== 'guide') return;
+  guideScreen.hidden = true;
+  mapScreen.hidden = false;
+  state.mode = 'map';
+}
+
 function updateTutorialUI() {
   tutorialFocus.hidden = state.mode !== 'playing' || state.tutorial !== 0;
   attackButton.classList.toggle('is-prompted', state.mode === 'playing' && state.tutorial === 1);
@@ -1117,15 +1489,37 @@ function updateTutorialUI() {
 function updateRouteUI() {
   document.querySelectorAll('.route-pip').forEach((pip) => {
     const index = Number(pip.dataset.region);
-    pip.classList.toggle('complete', index < state.regionIndex || (state.regionClear && index === state.regionIndex));
+    pip.classList.toggle('complete', chapterComplete(state.campaign, regions[index].key));
     pip.classList.toggle('active', index === state.regionIndex);
   });
-  document.querySelectorAll('.wave-line').forEach((line, index) => line.classList.toggle('complete', index < state.regionIndex));
+  document.querySelectorAll('.wave-line').forEach((line, index) => line.classList.toggle('complete', chapterComplete(state.campaign, regions[index].key)));
   document.querySelectorAll('[data-map-region]').forEach((node) => {
     const index = Number(node.dataset.mapRegion);
-    node.classList.toggle('complete', index < state.regionIndex || (state.regionClear && index === state.regionIndex));
+    node.classList.toggle('complete', chapterComplete(state.campaign, regions[index].key));
     node.classList.toggle('active', index === state.regionIndex);
-    node.classList.toggle('locked', index > state.regionIndex);
+    const previousUnlocked = index === 0 || chapterComplete(state.campaign, regions[index - 1].key);
+    node.classList.toggle('locked', !previousUnlocked);
+    node.disabled = !state.endingSeen || !previousUnlocked;
+  });
+  sideRouteNode.classList.toggle('discovered', objectiveComplete('vineway-passage'));
+  [...mapStamps.children].forEach((stamp, index) => {
+    const rewards = ['root-shortcut', 'vineway-shortcut', 'press-restored', 'world-restored'];
+    stamp.classList.toggle('unlocked', state.campaign.worldFlags.includes(rewards[index]));
+  });
+}
+
+function updateObjectiveUI() {
+  const chapter = campaignChapters[state.regionIndex];
+  if (!chapter) return;
+  const objectives = chapter.objectives;
+  while (objectiveStrip.children.length < objectives.length) objectiveStrip.append(document.createElement('i'));
+  [...objectiveStrip.children].forEach((slot, index) => {
+    const objective = objectives[index];
+    slot.hidden = !objective;
+    if (!objective) return;
+    slot.classList.toggle('complete', objectiveComplete(objective.id));
+    slot.classList.toggle('available', objectiveAvailable(state.campaign, objective.id));
+    slot.title = objective.kind;
   });
 }
 
@@ -1143,15 +1537,17 @@ function updateUI() {
   energyCount.textContent = state.energy.toLocaleString();
   const boss = state.enemies.find((enemy) => enemy.type === 'boss' && !enemy.dead);
   bossHealth.hidden = !boss;
+  objectiveStrip.hidden = Boolean(boss);
   if (boss) bossHealthFill.style.width = `${100 * boss.hp / boss.maxHp}%`;
 
-  const dashRatio = state.hero.dashCooldown / state.hero.dashMaxCooldown;
+  const dashRatio = state.mode === 'sideview' && state.sideview ? state.sideview.dashCooldown / 1.1 : state.hero.dashCooldown / state.hero.dashMaxCooldown;
   dashButton.style.setProperty('--cooldown', String(1 - dashRatio));
   dashButton.disabled = dashRatio > 0;
-  const ready = state.lastStraw >= state.maxStraw;
+  const ready = state.mode === 'playing' && objectiveComplete('root-companion') && state.lastStraw >= state.maxStraw;
   companionButton.disabled = !ready;
   companionButton.classList.toggle('is-ready', ready);
   companionButton.style.setProperty('--charge', String(state.lastStraw / state.maxStraw));
+  if (state.mode === 'playing') updateContextTarget();
 }
 
 function drawImageBottom(image, x, y, height, flip = 1, alpha = 1, rotation = 0, filter = 'none') {
@@ -1194,11 +1590,30 @@ function drawBackground() {
     ctx.arc(mote.x + Math.sin(state.time * 0.35 + mote.phase) * mote.drift, mote.y, mote.r, 0, Math.PI * 2);
     ctx.fill();
   }
+  if (state.campaign.worldFlags.includes('world-restored')) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'screen';
+    const wash = ctx.createLinearGradient(0, 0, 0, state.world.height);
+    wash.addColorStop(0, 'rgba(217,255,69,.07)'); wash.addColorStop(.55, 'rgba(106,228,75,.025)'); wash.addColorStop(1, 'rgba(255,212,98,.06)');
+    ctx.fillStyle = wash; ctx.fillRect(0, 0, state.world.width, state.world.height);
+    for (let i = 0; i < 15; i++) {
+      const y = 340 + i * 77;
+      const x = 305 + ((i * 137 + state.regionIndex * 83) % 330);
+      const r = 4 + Math.sin(state.time * 2 + i) * 1.2;
+      ctx.fillStyle = i % 3 ? 'rgba(217,255,69,.62)' : 'rgba(255,212,98,.7)';
+      ctx.shadowBlur = 13; ctx.shadowColor = ctx.fillStyle;
+      for (let petal = 0; petal < 5; petal++) {
+        const angle = petal * Math.PI * 2 / 5;
+        ctx.beginPath(); ctx.ellipse(x + Math.cos(angle) * r, y + Math.sin(angle) * r, r, r * .42, angle, 0, Math.PI * 2); ctx.fill();
+      }
+    }
+    ctx.restore();
+  }
 }
 
 function drawExit() {
   const { x, y } = asPoint(currentTerrainData().exit);
-  const cleared = state.encounterIndex >= regions[state.regionIndex].encounters.length && !state.gate;
+  const cleared = chapterComplete(state.campaign, regions[state.regionIndex].key) && !state.gate;
   const pulse = 0.5 + Math.sin(state.time * 4) * 0.15;
   ctx.save();
   ctx.translate(x, y);
@@ -1212,6 +1627,88 @@ function drawExit() {
     ctx.stroke();
   }
   ctx.restore();
+}
+
+function drawCork(x, y, scale = 1, rotation = -0.2) {
+  ctx.save();
+  ctx.translate(x, y); ctx.rotate(rotation); ctx.scale(scale, scale);
+  const cork = ctx.createLinearGradient(-24, 0, 24, 0);
+  cork.addColorStop(0, '#7c3d1d'); cork.addColorStop(0.25, '#d3914e'); cork.addColorStop(0.55, '#f0b96f'); cork.addColorStop(1, '#6b3018');
+  ctx.fillStyle = cork; ctx.strokeStyle = '#3a1515'; ctx.lineWidth = 4;
+  ctx.beginPath(); ctx.roundRect(-30, -15, 60, 30, 11); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = 'rgba(75,30,20,.7)'; ctx.lineWidth = 2;
+  for (const line of [-18, 18]) { ctx.beginPath(); ctx.moveTo(line, -13); ctx.lineTo(line, 13); ctx.stroke(); }
+  ctx.fillStyle = '#70351c'; ctx.beginPath(); ctx.arc(0, 0, 6, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+function drawMissionProps() {
+  const mission = state.mission;
+  if (!mission) return;
+  if (regions[state.regionIndex].key === 'root') {
+    const lift = mission.props.find((prop) => prop.kind === 'lift');
+    for (const prop of mission.props.filter((item) => item.kind === 'relay')) {
+      if (!objectiveComplete(prop.objectiveId)) continue;
+      ctx.strokeStyle = 'rgba(217,255,69,.72)'; ctx.lineWidth = 5; ctx.shadowBlur = 17; ctx.shadowColor = '#d9ff45';
+      ctx.setLineDash([8, 13]); ctx.lineDashOffset = -state.time * 22;
+      ctx.beginPath(); ctx.moveTo(prop.x, prop.y); ctx.quadraticCurveTo(480, (prop.y + lift.y) / 2, lift.x, lift.y); ctx.stroke();
+      ctx.setLineDash([]); ctx.shadowBlur = 0;
+    }
+  }
+  for (const prop of mission.props) {
+    const done = prop.objectiveId ? objectiveComplete(prop.objectiveId) : false;
+    const ready = propReady(prop);
+    if (prop.kind === 'cork' && (state.carried || objectiveComplete('press-cork-delivered'))) continue;
+    const pulse = 1 + Math.sin(state.time * 4 + prop.pulse) * 0.06;
+    ctx.save(); ctx.translate(prop.x, prop.y); ctx.scale(pulse, pulse);
+    ctx.shadowBlur = ready ? 24 : 10;
+    ctx.shadowColor = done ? '#d9ff45' : ready ? '#ffd462' : '#73319b';
+    if (prop.kind === 'cage') {
+      ctx.strokeStyle = done ? '#d9ff45' : '#7e3c8f'; ctx.lineWidth = 8; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.arc(0, -8, 32, done ? 0.35 : Math.PI, done ? Math.PI * 1.65 : Math.PI * 2); ctx.stroke();
+      if (!done) { for (let x = -22; x <= 22; x += 11) { ctx.beginPath(); ctx.moveTo(x, -35); ctx.lineTo(x, 19); ctx.stroke(); } }
+      ctx.fillStyle = done ? '#d9ff45' : '#b669dd'; ctx.beginPath(); ctx.arc(0, -8, 10, 0, Math.PI * 2); ctx.fill();
+    } else if (prop.kind === 'relay') {
+      ctx.fillStyle = done ? '#d9ff45' : ready ? '#aa5de0' : '#422151'; ctx.strokeStyle = done ? '#f4ffb0' : '#c78af1'; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.moveTo(0, -40); ctx.lineTo(24, -4); ctx.lineTo(12, 31); ctx.lineTo(-17, 31); ctx.lineTo(-25, -5); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#32143f'; ctx.beginPath(); ctx.ellipse(0, 32, 36, 13, 0, 0, Math.PI * 2); ctx.fill();
+    } else if (prop.kind.startsWith('route-')) {
+      ctx.strokeStyle = ready ? '#ffd462' : '#724887'; ctx.lineWidth = 7; ctx.lineCap = 'round';
+      const direction = prop.kind === 'route-left' ? -1 : 1;
+      ctx.beginPath(); ctx.moveTo(-direction * 30, 22); ctx.lineTo(direction * 4, -8); ctx.lineTo(direction * 34, 18); ctx.stroke();
+      ctx.fillStyle = ready ? '#ffd462' : '#724887'; ctx.beginPath(); ctx.moveTo(direction * 39, 18); ctx.lineTo(direction * 19, 10); ctx.lineTo(direction * 28, 32); ctx.closePath(); ctx.fill();
+    } else if (prop.kind === 'passage') {
+      ctx.strokeStyle = done ? '#d9ff45' : ready ? '#ffd462' : '#724887'; ctx.lineWidth = 8;
+      ctx.beginPath(); ctx.arc(0, 12, 38, Math.PI, 0); ctx.lineTo(38, 32); ctx.moveTo(-38, 32); ctx.lineTo(-38, 12); ctx.stroke();
+      ctx.fillStyle = `rgba(217,255,69,${done ? .32 : .12})`; ctx.beginPath(); ctx.ellipse(0, 18, 28, 34, 0, 0, Math.PI * 2); ctx.fill();
+    } else if (prop.kind === 'cork') drawCork(0, -10, 0.85);
+    else if (prop.kind === 'socket') {
+      ctx.fillStyle = done ? '#87cb22' : '#4d2364'; ctx.strokeStyle = done ? '#d9ff45' : ready ? '#ffd462' : '#8b5aa3'; ctx.lineWidth = 5;
+      ctx.beginPath(); ctx.ellipse(0, 0, 42, 22, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, -19, 18, 0, Math.PI * 2); ctx.stroke();
+    } else if (prop.kind === 'vent') {
+      ctx.strokeStyle = done ? '#d9ff45' : ready ? '#ffbd49' : '#60336f'; ctx.lineWidth = 7;
+      ctx.beginPath(); ctx.arc(0, 0, 30, 0, Math.PI * 2); ctx.stroke();
+      for (let i = 0; i < 6; i++) { ctx.save(); ctx.rotate(i * Math.PI / 3 + state.time * (done ? 1.5 : 0)); ctx.beginPath(); ctx.moveTo(8, 0); ctx.lineTo(28, 0); ctx.stroke(); ctx.restore(); }
+      ctx.fillStyle = done ? '#d9ff45' : '#ff5b82'; ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill();
+    } else if (prop.kind === 'lift') {
+      const open = chapterComplete(state.campaign, regions[state.regionIndex].key);
+      ctx.strokeStyle = open ? '#d9ff45' : '#63347a'; ctx.lineWidth = 8;
+      ctx.beginPath(); ctx.ellipse(0, 0, 44, 25, 0, 0, Math.PI * 2); ctx.stroke();
+      ctx.fillStyle = open ? 'rgba(217,255,69,.3)' : 'rgba(75,34,94,.55)'; ctx.beginPath(); ctx.ellipse(0, 0, 34, 18, 0, 0, Math.PI * 2); ctx.fill();
+    }
+    if (ready && distance(prop, state.hero) < 180) {
+      ctx.strokeStyle = '#fff8dc'; ctx.lineWidth = 4; ctx.setLineDash([4, 6]);
+      ctx.beginPath(); ctx.arc(0, -54, 13 + Math.sin(state.time * 6) * 3, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]);
+      ctx.fillStyle = '#ffd462'; ctx.beginPath(); ctx.moveTo(-8, -75); ctx.lineTo(8, -75); ctx.lineTo(0, -61); ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+function drawCarried() {
+  if (state.carried !== 'press-cork') return;
+  drawCork(state.hero.x, state.hero.y - 112, 0.72, Math.sin(state.time * 4) * 0.08);
 }
 
 function drawGate() {
@@ -1364,6 +1861,7 @@ function drawHeroAt(x, y, direction, alpha = 1, ghost = false, frozenPose = null
 }
 
 function drawCompanion() {
+  if (regions[state.regionIndex].key === 'root' && !objectiveComplete('root-companion')) return;
   const hero = state.hero;
   const hover = prefersReducedMotion ? 0 : Math.sin(state.time * 3.2) * 3;
   const x = hero.x + 43;
@@ -1423,8 +1921,12 @@ function drawParticles() {
 
 function drawGuidance() {
   if (state.mode !== 'playing') return;
+  const readyProp = state.mission?.props
+    .filter((prop) => propReady(prop))
+    .sort((a, b) => distance(a, state.hero) - distance(b, state.hero))[0];
+  const readyEncounter = state.mission?.encounters.find((encounter) => !encounter.triggered && (!encounter.objectiveId || objectiveAvailable(state.campaign, encounter.objectiveId)));
   const destination = state.gate?.active ? nearestEnemy(state.hero)
-    : asPoint(currentTerrainData().encounters[state.encounterIndex] || currentTerrainData().exit);
+    : readyProp || readyEncounter || asPoint(currentTerrainData().exit);
   if (!destination) return;
   const guide = state.guidance;
   if (state.time >= guide.timer || guide.revision !== state.terrain.revision) {
@@ -1574,12 +2076,78 @@ function drawTravelMap() {
   ctx.restore();
 }
 
+function drawSideview() {
+  const side = state.sideview;
+  if (!side) return;
+  const scale = viewport.height / 720;
+  ctx.save();
+  ctx.scale(scale, scale);
+  ctx.translate(-side.cameraX, 0);
+  ctx.drawImage(images.sideview, 0, 0, sideviewDefinition.width, 720);
+  const glow = ctx.createLinearGradient(0, 470, 0, 720);
+  glow.addColorStop(0, 'rgba(23,5,44,0)'); glow.addColorStop(1, 'rgba(8,1,16,.66)');
+  ctx.fillStyle = glow; ctx.fillRect(side.cameraX, 0, viewport.width / scale, 720);
+  for (const platform of sideviewDefinition.platforms) {
+    ctx.strokeStyle = 'rgba(217,255,69,.18)'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(platform.x, platform.y + 2); ctx.lineTo(platform.x + platform.width, platform.y + 2); ctx.stroke();
+  }
+  const exitPulse = 1 + Math.sin(state.time * 5) * 0.08;
+  ctx.save(); ctx.translate(sideviewDefinition.exitX + 35, 458); ctx.scale(exitPulse, exitPulse);
+  ctx.strokeStyle = '#d9ff45'; ctx.lineWidth = 7; ctx.shadowBlur = 26; ctx.shadowColor = '#d9ff45';
+  ctx.beginPath(); ctx.arc(0, 0, 35, Math.PI, 0); ctx.lineTo(35, 42); ctx.moveTo(-35, 42); ctx.lineTo(-35, 0); ctx.stroke(); ctx.restore();
+  drawHeroAt(side.x, side.y, side.direction >= 0 ? 0 : 4);
+  const hover = prefersReducedMotion ? 0 : Math.sin(state.time * 3) * 4;
+  ctx.drawImage(images.heroFront, 427, 0, 179, 233, side.x + (side.direction >= 0 ? -48 : 30), side.y - 115 + hover, 34, 44);
+  drawParticles();
+  if (side.x < 260) {
+    ctx.globalAlpha = clamp(1 - side.x / 280, 0, 0.8);
+    ctx.strokeStyle = '#fff8dc'; ctx.fillStyle = '#d9ff45'; ctx.lineWidth = 5; ctx.lineCap = 'round';
+    const y = 435 + Math.sin(state.time * 4) * 4;
+    for (const x of [145, 190, 235]) { ctx.beginPath(); ctx.moveTo(x - 13, y - 11); ctx.lineTo(x, y); ctx.lineTo(x - 13, y + 11); ctx.stroke(); }
+    ctx.globalAlpha = 1;
+  }
+  ctx.restore();
+}
+
+function drawFinalePayoff() {
+  if (!state.ultimate || regions[state.regionIndex].key !== 'sourwood') return;
+  const t = state.ultimate.time;
+  if (t < 0.16 || t > 1.45) return;
+  const hx = (state.hero.x - state.camera.x) * viewZoom();
+  const hy = (state.hero.y - state.camera.y) * viewZoom();
+  const pull = clamp((t - 0.16) / 0.42, 0, 1);
+  ctx.save();
+  ctx.translate(hx, hy - 82 - pull * 48);
+  ctx.rotate(-0.3 + pull * 0.68);
+  const corkScale = 1.1 + pull * 0.9;
+  ctx.scale(corkScale, corkScale);
+  const gradient = ctx.createLinearGradient(-34, 0, 34, 0);
+  gradient.addColorStop(0, '#6c3017'); gradient.addColorStop(.3, '#df9d58'); gradient.addColorStop(.65, '#ffc985'); gradient.addColorStop(1, '#713319');
+  ctx.fillStyle = gradient; ctx.strokeStyle = '#341212'; ctx.lineWidth = 5;
+  ctx.beginPath(); ctx.roundRect(-38, -20, 76, 40, 14); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#6d2e43'; ctx.beginPath(); ctx.arc(0, 0, 9, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+  if (t > 0.3) {
+    const cx = hx + 45, cy = hy - 87;
+    ctx.fillStyle = '#ffd462'; ctx.strokeStyle = '#3d174c'; ctx.lineWidth = 4;
+    for (const dx of [-12, 12]) { ctx.beginPath(); ctx.arc(cx + dx, cy, 10, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); }
+    ctx.beginPath(); ctx.moveTo(cx - 22, cy); ctx.lineTo(cx + 22, cy); ctx.stroke();
+  }
+  ctx.restore();
+}
+
 function draw() {
   ctx.setTransform(viewport.dpr, 0, 0, viewport.dpr, 0, 0);
   ctx.clearRect(0, 0, viewport.width, viewport.height);
   ctx.fillStyle = '#090611';
   ctx.fillRect(0, 0, viewport.width, viewport.height);
   if (!assetsReady || !state.hero || !state.terrain) return;
+
+  if (state.mode === 'sideview') {
+    drawSideview();
+    if (state.flash > 0) { ctx.fillStyle = `rgba(255,55,96,${state.flash * 0.35})`; ctx.fillRect(0, 0, viewport.width, viewport.height); }
+    return;
+  }
 
   const shakeX = prefersReducedMotion ? 0 : (Math.random() - 0.5) * state.shake;
   const shakeY = prefersReducedMotion ? 0 : (Math.random() - 0.5) * state.shake;
@@ -1588,6 +2156,7 @@ function draw() {
   ctx.scale(viewZoom(), viewZoom());
   ctx.translate(-state.camera.x, -state.camera.y);
   drawBackground();
+  drawMissionProps();
   drawExit();
   drawGate();
   drawSecret();
@@ -1600,6 +2169,7 @@ function draw() {
     if (actor.type === 'hero') drawHero();
     else drawEnemy(actor.entity);
   }
+  drawCarried();
   drawParticles();
   drawTerrainDebug();
   ctx.restore();
@@ -1607,6 +2177,7 @@ function draw() {
   drawGuidance();
   drawRegionIntro();
   drawUltimateOverlay();
+  drawFinalePayoff();
   if (state.mode === 'travel') drawTravelMap();
   if (state.flash > 0) {
     ctx.fillStyle = `rgba(255,55,96,${state.flash * 0.35})`;
@@ -1617,7 +2188,7 @@ function draw() {
 function frame(now) {
   const elapsed = Math.min(0.12, Math.max(0, (now - lastFrame) / 1000));
   lastFrame = now;
-  if (['playing', 'clearing', 'travel', 'start'].includes(state.mode)) {
+  if (['playing', 'clearing', 'travel', 'start', 'sideview'].includes(state.mode)) {
     accumulator += elapsed;
     let steps = 0;
     while (accumulator >= 1 / 60 && steps++ < 7) { update(1 / 60); accumulator -= 1 / 60; }
@@ -1718,16 +2289,32 @@ startButton.addEventListener('click', () => {
   initializeSound();
   resetGame();
 });
+continueButton.addEventListener('click', () => {
+  if (!assetsReady) return;
+  const checkpoint = loadSave();
+  if (!checkpoint) { continueButton.hidden = true; return; }
+  initializeSound();
+  resetGame({ continueSave: checkpoint });
+});
 restartButton.addEventListener('click', () => {
   if (!assetsReady) return;
   initializeSound();
   hideOverlays();
-  resetGame();
+  const checkpoint = loadSave();
+  resetGame(checkpoint ? { continueSave: checkpoint } : {});
 });
 pauseButton.addEventListener('click', () => state.mode === 'paused' ? resumeGame() : pauseGame());
 resumeButton.addEventListener('click', resumeGame);
 mapButton.addEventListener('click', openMap);
 closeMapButton.addEventListener('click', closeMap);
+guideButton.addEventListener('click', openGuide);
+closeGuideButton.addEventListener('click', closeGuide);
+document.querySelectorAll('[data-map-region]').forEach((node) => node.addEventListener('click', () => {
+  if (state.mode !== 'map' || !state.endingSeen) return;
+  const index = Number(node.dataset.mapRegion);
+  mapScreen.hidden = true;
+  enterRegion(index, false, `${regions[index].key}-start`);
+}));
 
 soundButton.addEventListener('click', () => {
   state.sound = !state.sound;
@@ -1735,6 +2322,7 @@ soundButton.addEventListener('click', () => {
   soundButton.setAttribute('aria-label', state.sound ? 'Turn sound off' : 'Turn sound on');
   if (state.sound) initializeSound();
   if (masterGain) masterGain.gain.setTargetAtTime(state.sound ? 0.17 : 0, audioContext.currentTime, 0.035);
+  if (assetsReady && state.mode !== 'loading' && state.mode !== 'start') saveProgress(state.checkpoint.anchorId, state.checkpoint.chapterId);
 });
 
 window.addEventListener('keydown', (event) => {
@@ -1742,13 +2330,19 @@ window.addEventListener('keydown', (event) => {
   input.keys.add(key);
   if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'shift', 'e', 'm'].includes(key)) event.preventDefault();
   if (event.repeat && ['m', 'escape', 'shift', 'e'].includes(key)) return;
-  if (state.mode === 'start' && (key === ' ' || key === 'enter')) { initializeSound(); resetGame(); return; }
+  if (state.mode === 'start' && (key === ' ' || key === 'enter')) {
+    initializeSound();
+    const checkpoint = loadSave();
+    resetGame(checkpoint ? { continueSave: checkpoint } : {});
+    return;
+  }
   if (key === ' ') { initializeSound(); attack(); }
   if (key === 'shift') dash();
   if (key === 'e') unleashGripe();
   if (key === 'm') state.mode === 'map' ? closeMap() : openMap();
   if (key === 'escape') {
-    if (state.mode === 'map') closeMap();
+    if (state.mode === 'guide') closeGuide();
+    else if (state.mode === 'map') closeMap();
     else if (state.mode === 'paused') resumeGame();
     else pauseGame();
   }
@@ -1786,6 +2380,7 @@ async function boot() {
     loadingScreen.hidden = true;
     startScreen.hidden = false;
     startButton.disabled = false;
+    continueButton.hidden = !loadSave();
     state.mode = 'start';
   } catch {
     // Failed art must never expose a playable but broken world.
