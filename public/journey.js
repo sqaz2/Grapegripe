@@ -1847,11 +1847,14 @@ function drawHeroAt(x, y, direction, alpha = 1, ghost = false, frozenPose = null
   const scale = size / heroAtlas.cell;
   const attackProgress = hero.attackAnim > 0 ? hero.attackAnim / 0.34 : 0;
   const attackLean = ghost ? 0 : Math.sin(attackProgress * Math.PI) * 0.09;
-  const lean = pose.state === 'dash' ? 0.12 : attackLean;
+  const idleMotion = pose.state === 'idle' && !ghost && !prefersReducedMotion;
+  const idleBreath = idleMotion ? pose.idleBreath : 0;
+  const lean = pose.state === 'dash' ? 0.12 : attackLean + (idleMotion ? pose.idleLean : 0);
   drawShadow(x, y + 4, 62, ghost ? 0.1 : 0.4);
   ctx.save();
   ctx.translate(x, y);
-  ctx.scale(pose.flip, 1);
+  // Scale from the planted-foot anchor so breathing never makes the boots float.
+  ctx.scale(pose.flip * (1 - idleBreath * 0.45), 1 + idleBreath);
   ctx.rotate(lean);
   ctx.globalAlpha = alpha;
   ctx.filter = ghost ? 'saturate(1.3) hue-rotate(15deg)' : hero.invulnerable > 0 && Math.floor(hero.invulnerable * 18) % 2 ? 'brightness(1.75) saturate(.6)' : 'none';
@@ -1863,13 +1866,41 @@ function drawHeroAt(x, y, direction, alpha = 1, ghost = false, frozenPose = null
 function drawCompanion() {
   if (regions[state.regionIndex].key === 'root' && !objectiveComplete('root-companion')) return;
   const hero = state.hero;
+  const pose = sampleAnimation(hero.animator, hero.direction);
+  const funny = !prefersReducedMotion && pose.idleVariant === 'companion-bonk';
+  const gagTime = funny ? pose.idleTime - 10.4 : 0;
   const hover = prefersReducedMotion ? 0 : Math.sin(state.time * 3.2) * 3;
-  const x = hero.x + 43;
-  const y = hero.y - 76 + hover;
+  let x = hero.x + 43;
+  let y = hero.y - 76 + hover;
+  let tilt = 0;
+  if (funny) {
+    const approach = clamp(gagTime / 0.65, 0, 1);
+    const returnTrip = clamp((gagTime - 2.15) / 0.6, 0, 1);
+    const perch = Math.sin(clamp((gagTime - 0.5) / 0.38, 0, 1) * Math.PI) * 10;
+    const blend = approach * (1 - returnTrip);
+    x = lerp(hero.x + 43, hero.x + 5, blend);
+    y = lerp(hero.y - 76 + hover, hero.y - 126 - perch, blend);
+    tilt = Math.sin(gagTime * 11) * 0.18 * blend;
+  }
   ctx.save();
+  ctx.translate(x, y);
+  ctx.rotate(tilt);
   // Existing companion art has its own crop and transform, independent of gait.
   // Replace this crop with a dedicated companion atlas in Sol's animation pass.
-  ctx.drawImage(images.heroFront, 427, 0, 179, 233, x - 17, y - 22, 34, 44);
+  ctx.drawImage(images.heroFront, 427, 0, 179, 233, -17, -22, 34, 44);
+  if (funny && gagTime > 0.68 && gagTime < 1.18) {
+    const flash = 1 - Math.abs(gagTime - 0.93) / 0.25;
+    ctx.globalAlpha = clamp(flash, 0, 1);
+    ctx.strokeStyle = '#fff8dc';
+    ctx.lineWidth = 2.5;
+    for (let i = 0; i < 5; i += 1) {
+      const angle = i * Math.PI * 0.4 - Math.PI * 0.55;
+      ctx.beginPath();
+      ctx.moveTo(Math.cos(angle) * 21, Math.sin(angle) * 21);
+      ctx.lineTo(Math.cos(angle) * 31, Math.sin(angle) * 31);
+      ctx.stroke();
+    }
+  }
   ctx.restore();
 }
 
@@ -2236,7 +2267,7 @@ function clearInput() {
 }
 
 joystickZone.addEventListener('pointerdown', (event) => {
-  if (state.mode !== 'playing' || input.joystickId !== null) return;
+  if (!['playing', 'sideview'].includes(state.mode) || input.joystickId !== null) return;
   event.preventDefault();
   input.joystickId = event.pointerId;
   input.joyOriginX = event.clientX;

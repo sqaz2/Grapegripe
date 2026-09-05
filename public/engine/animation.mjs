@@ -1,5 +1,6 @@
 // Distance, not requested velocity, drives the gait. Rendering never changes it.
 export const STRIDE_LENGTH = 72;
+export const IDLE_LOOP_SECONDS = 13.2;
 const facings = [
   { row: 2, flip: -1 }, { row: 1, flip: -1 }, { row: 0, flip: 1 },
   { row: 1, flip: 1 }, { row: 2, flip: 1 }, { row: 3, flip: 1 },
@@ -25,6 +26,42 @@ export function advanceAnimator(animator, { distance = 0, dt = 0, dashing = fals
 
 export function sampleAnimation(animator, direction = 2) {
   const facing = facings[((Math.round(direction) % 8) + 8) % 8];
-  const column = animator.state === 'idle' ? 2 : animator.state === 'dash' ? 0 : Math.floor(animator.phase * 6) % 6;
-  return { ...facing, column, state: animator.state, phase: animator.phase, stateTime: animator.stateTime };
+  if (animator.state === 'idle') {
+    const idleTime = animator.stateTime % IDLE_LOOP_SECONDS;
+    const idleVariant = idleTime < 3.4 ? 'breathe'
+      : idleTime < 5.8 ? 'look-left'
+        : idleTime < 8.2 ? 'look-right'
+          : idleTime < 10.4 ? 'settle'
+            : 'companion-bonk';
+    const idleLean = idleVariant === 'look-left' ? -0.018
+      : idleVariant === 'look-right' ? 0.018
+        : idleVariant === 'companion-bonk' ? Math.sin((idleTime - 10.4) * 7) * 0.012
+          : 0;
+    // The walk sheet has no side-on rest frame: every side cell lifts a boot.
+    // Rest therefore turns toward the player and uses its one balanced, grounded cell.
+    return {
+      row: 0,
+      flip: idleVariant === 'look-left' ? -1 : 1,
+      column: 2,
+      state: animator.state,
+      phase: animator.phase,
+      stateTime: animator.stateTime,
+      idleTime,
+      idleVariant,
+      idleLean,
+      idleBreath: Math.sin(animator.stateTime * 2.15) * 0.008,
+    };
+  }
+  const column = animator.state === 'dash' ? 0 : Math.floor(animator.phase * 6) % 6;
+  return {
+    ...facing,
+    column,
+    state: animator.state,
+    phase: animator.phase,
+    stateTime: animator.stateTime,
+    idleTime: 0,
+    idleVariant: null,
+    idleLean: 0,
+    idleBreath: 0,
+  };
 }
