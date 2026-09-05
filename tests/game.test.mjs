@@ -14,6 +14,19 @@ test('boot, render calls, and game controls tolerate unavailable storage', async
   assert.equal(g.state.mode, 'won');
 });
 
+test('idle rendering continuously animates the cape without changing the planted pose', async () => {
+  const g = await loadGame(); g.resetGame();
+  g.drawnImages.length = 0;
+  g.draw();
+  const idleDraws = g.drawnImages.filter(({ src }) => src.endsWith('hero-walk.webp')).length;
+  assert.equal(g.state.hero.animator.state, 'idle');
+  g.state.hero.animator.state = 'walk';
+  g.drawnImages.length = 0;
+  g.draw();
+  const movingDraws = g.drawnImages.filter(({ src }) => src.endsWith('hero-walk.webp')).length;
+  assert.ok(idleDraws >= movingDraws + 14, 'idle cape should render fourteen flowing bands');
+});
+
 test('asset failure stays behind loading screen, and retry recovers', async () => {
   const g = await loadGame({ failAssets: true });
   assert.equal(g.state.mode, 'loading');

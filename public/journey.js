@@ -1840,6 +1840,60 @@ function drawEnemy(enemy) {
   }
 }
 
+const idleCapeSections = [
+  { x: 54, y: 148, width: 74, height: 94, direction: -1 },
+  { x: 282, y: 151, width: 66, height: 94, direction: 1 },
+];
+
+function drawIdleCapeWind(pose, frameX, frameY, size, scale) {
+  const bands = 7;
+  const sourceX = pose.column * heroAtlas.cell;
+  const sourceY = pose.row * heroAtlas.cell;
+
+  // Redraw only the two loose cape edges in narrow horizontal bands. The feet,
+  // body and silhouette anchor never move, while the lower cloth catches more wind.
+  for (const section of idleCapeSections) {
+    const bandHeight = section.height / bands;
+    for (let band = 0; band < bands; band += 1) {
+      const progress = (band + 1) / bands;
+      const sourceBandY = section.y + band * bandHeight;
+      const breeze = Math.sin(state.time * 1.75 + band * 0.42)
+        + Math.sin(state.time * 3.85 - band * 0.27) * 0.34;
+      const lift = Math.sin(state.time * 2.35 + band * 0.63) * progress * 1.4;
+      const drift = section.direction * breeze * (2.5 + progress * 8.5);
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(
+        frameX + section.x * scale,
+        frameY + sourceBandY * scale,
+        section.width * scale,
+        bandHeight * scale + 1,
+      );
+      ctx.clip();
+      ctx.drawImage(images.heroWalk, sourceX, sourceY, heroAtlas.cell, heroAtlas.cell,
+        frameX + drift * scale, frameY + lift * scale, size, size);
+      ctx.restore();
+    }
+  }
+
+  // Draw the stable body everywhere except the two animated cape-edge windows.
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(frameX - 2, frameY - 2, size + 4, size + 4);
+  for (const section of idleCapeSections) {
+    ctx.rect(
+      frameX + section.x * scale,
+      frameY + section.y * scale,
+      section.width * scale,
+      section.height * scale,
+    );
+  }
+  ctx.clip('evenodd');
+  ctx.drawImage(images.heroWalk, sourceX, sourceY, heroAtlas.cell, heroAtlas.cell,
+    frameX, frameY, size, size);
+  ctx.restore();
+}
+
 function drawHeroAt(x, y, direction, alpha = 1, ghost = false, frozenPose = null) {
   const hero = state.hero;
   const pose = frozenPose || sampleAnimation(hero.animator, direction);
@@ -1858,8 +1912,11 @@ function drawHeroAt(x, y, direction, alpha = 1, ghost = false, frozenPose = null
   ctx.rotate(lean);
   ctx.globalAlpha = alpha;
   ctx.filter = ghost ? 'saturate(1.3) hue-rotate(15deg)' : hero.invulnerable > 0 && Math.floor(hero.invulnerable * 18) % 2 ? 'brightness(1.75) saturate(.6)' : 'none';
-  ctx.drawImage(images.heroWalk, pose.column * heroAtlas.cell, pose.row * heroAtlas.cell,
-    heroAtlas.cell, heroAtlas.cell, -heroAtlas.anchor.x * scale, -heroAtlas.anchor.y * scale, size, size);
+  const frameX = -heroAtlas.anchor.x * scale;
+  const frameY = -heroAtlas.anchor.y * scale;
+  if (idleMotion) drawIdleCapeWind(pose, frameX, frameY, size, scale);
+  else ctx.drawImage(images.heroWalk, pose.column * heroAtlas.cell, pose.row * heroAtlas.cell,
+    heroAtlas.cell, heroAtlas.cell, frameX, frameY, size, size);
   ctx.restore();
 }
 
