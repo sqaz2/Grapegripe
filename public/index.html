@@ -179,6 +179,34 @@
         </div>
       </section>
 
+      <section id="verdict-screen" class="verdict-screen" hidden role="dialog" aria-modal="true" aria-label="Choose what to do with the gripe">
+        <div class="verdict-orbit" aria-hidden="true">
+          <i class="verdict-clue eye"></i><i class="verdict-clue page"></i><i class="verdict-clue heart"></i>
+        </div>
+        <div class="verdict-prompt" aria-hidden="true">
+          <span class="verdict-grape"><i></i><i></i><i></i><b></b></span>
+          <strong>?</strong>
+        </div>
+        <div class="verdict-grid">
+          <button class="verdict-card say" type="button" data-verdict="say" aria-label="Say it: start each area with the Grape Gripe ready">
+            <svg viewBox="0 0 84 84" aria-hidden="true"><path d="M10 35v14h13l28 17V18L23 35Zm50-8c8 8 8 22 0 30m9-39c14 14 14 34 0 48" /></svg>
+            <span>SAY</span><i class="perk-mark">⚡</i>
+          </button>
+          <button class="verdict-card solve" type="button" data-verdict="solve" aria-label="Solve it: fire a heavy grape every second attack">
+            <svg viewBox="0 0 84 84" aria-hidden="true"><path d="M51 9a18 18 0 0 0-19 24L9 56l19 19 23-23A18 18 0 0 0 75 33L62 46l-10-3-3-10 13-13A18 18 0 0 0 51 9Z" /></svg>
+            <span>SOLVE</span><i class="perk-mark">×2</i>
+          </button>
+          <button class="verdict-card save" type="button" data-verdict="save" aria-label="Save it: your companion blocks the first hit in each area">
+            <svg viewBox="0 0 84 84" aria-hidden="true"><path d="M42 7 70 18v20c0 18-11 30-28 39C25 68 14 56 14 38V18Z" /><path d="M42 57S23 46 23 33c0-10 13-13 19-4 6-9 19-6 19 4 0 13-19 24-19 24Z" /></svg>
+            <span>SAVE</span><i class="perk-mark">1×</i>
+          </button>
+          <button class="verdict-card drop" type="button" data-verdict="drop" aria-label="Drop it: dash recharges faster">
+            <svg viewBox="0 0 84 84" aria-hidden="true"><path d="M42 7v48m-17-16 17 17 17-17M18 68h48" /></svg>
+            <span>DROP</span><i class="perk-mark">≫</i>
+          </button>
+        </div>
+      </section>
+
       <section id="pause-screen" class="pause-screen" hidden role="dialog" aria-modal="true" aria-label="Battle paused">
         <div class="pause-panel">
           <button id="resume-button" class="round-overlay-button" type="button" aria-label="Resume battle">
@@ -206,6 +234,11 @@
             <span class="lesson-control lesson-grapple"><i></i><b>☝</b></span>
             <span class="lesson-plus">+</span>
             <span class="lesson-control lesson-dash">➜</span>
+          </div>
+          <div class="context-help-visual mystery-help" aria-hidden="true">
+            <span class="lesson-clue eye"></span><span class="lesson-plus">+</span>
+            <span class="lesson-clue page"></span><span class="lesson-plus">+</span>
+            <span class="lesson-clue heart"></span><b>➜</b><span class="lesson-choice">?</span>
           </div>
           <h2 id="context-help-title">Cork secured</h2>
           <p id="context-help-copy">Carry it to the glowing socket. You can still fire.</p>

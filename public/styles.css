@@ -97,6 +97,7 @@ button:focus-visible {
 .loading-screen,
 .start-screen,
 .upgrade-screen,
+.verdict-screen,
 .pause-screen,
 .end-screen {
   position: absolute;
@@ -787,6 +788,7 @@ button:focus-visible {
 }
 
 .upgrade-screen,
+.verdict-screen,
 .pause-screen,
 .end-screen {
   background: rgba(8, 3, 13, 0.72);
@@ -1083,6 +1085,107 @@ button:focus-visible {
   overflow: hidden;
 }
 
+.verdict-screen {
+  z-index: 35;
+  overflow: hidden;
+  grid-template-rows: 1fr auto auto 1fr;
+  gap: 16px;
+  padding: calc(var(--safe-top) + 18px) calc(var(--safe-right) + 18px) calc(var(--safe-bottom) + 18px) calc(var(--safe-left) + 18px);
+  background:
+    radial-gradient(circle at 50% 34%, rgba(217, 255, 69, .18), transparent 24%),
+    radial-gradient(circle at 50% 58%, rgba(137, 52, 187, .44), transparent 58%),
+    rgba(7, 3, 12, .9);
+  backdrop-filter: blur(13px) saturate(1.3);
+}
+
+.verdict-orbit {
+  position: absolute;
+  top: 7%;
+  left: 50%;
+  width: min(72vw, 320px);
+  aspect-ratio: 1;
+  border: 2px dashed rgba(217, 255, 69, .18);
+  border-radius: 50%;
+  transform: translateX(-50%);
+  animation: verdict-turn 18s linear infinite;
+}
+
+.verdict-clue,
+.lesson-clue {
+  display: block;
+  position: relative;
+  width: 48px;
+  height: 48px;
+  border: 3px solid #fff8dc;
+  background: #5d2677;
+  box-shadow: 0 0 22px rgba(217, 255, 69, .35);
+}
+
+.verdict-clue { position: absolute; }
+.verdict-clue.eye { left: 50%; top: -24px; margin-left: -24px; border-radius: 70% 12%; transform: rotate(45deg); }
+.verdict-clue.page { right: -12px; bottom: 18%; border-radius: 6px; transform: rotate(8deg); }
+.verdict-clue.heart { left: -12px; bottom: 18%; border-radius: 55% 55% 48% 12%; transform: rotate(-45deg); }
+.verdict-clue.eye::after,
+.lesson-clue.eye::after { content: ""; position: absolute; inset: 12px; border-radius: 50%; background: var(--acid); box-shadow: inset 0 0 0 6px #351545; }
+.verdict-clue.page::before,
+.verdict-clue.page::after,
+.lesson-clue.page::before,
+.lesson-clue.page::after { content: ""; position: absolute; left: 9px; right: 9px; height: 4px; border-radius: 4px; background: var(--acid); box-shadow: 0 10px 0 rgba(255,248,220,.72); }
+.verdict-clue.page::before,
+.lesson-clue.page::before { top: 11px; }
+.verdict-clue.heart::after,
+.lesson-clue.heart::after { content: "♥"; position: absolute; inset: 2px; color: #ff5aa9; font-size: 2.25rem; line-height: 1; text-align: center; transform: rotate(45deg); }
+
+.verdict-prompt {
+  z-index: 2;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  gap: 15px;
+  color: var(--acid);
+  filter: drop-shadow(0 0 18px rgba(217, 255, 69, .5));
+}
+.verdict-prompt > strong { font-size: clamp(2.3rem, 10vw, 3.7rem); }
+.verdict-grape { position: relative; width: 72px; height: 70px; }
+.verdict-grape i { position: absolute; width: 32px; height: 32px; border: 3px solid #e8b8ff; border-radius: 50%; background: linear-gradient(145deg, #bc63ec, #4c126a); }
+.verdict-grape i:nth-child(1) { left: 20px; top: 0; }
+.verdict-grape i:nth-child(2) { left: 3px; top: 27px; }
+.verdict-grape i:nth-child(3) { right: 3px; top: 27px; }
+.verdict-grape b { position: absolute; left: 43px; top: -13px; width: 28px; height: 15px; border-radius: 100% 0; background: var(--acid); transform: rotate(-24deg); }
+
+.verdict-grid {
+  z-index: 2;
+  grid-row: 3;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(118px, 154px));
+  gap: 12px;
+  justify-content: center;
+  width: min(92vw, 340px);
+}
+.verdict-card {
+  position: relative;
+  display: grid;
+  grid-template-rows: 1fr auto;
+  place-items: center;
+  min-height: 130px;
+  padding: 15px 12px 12px;
+  border: 2px solid rgba(255, 248, 220, .64);
+  border-radius: 34px;
+  color: var(--cream);
+  background: linear-gradient(160deg, rgba(100, 39, 132, .97), rgba(21, 8, 30, .98));
+  box-shadow: 0 18px 34px rgba(0,0,0,.45), inset 0 2px 0 rgba(255,255,255,.13);
+}
+.verdict-card:active { transform: scale(.96); filter: brightness(1.28); }
+.verdict-card svg { width: 62px; height: 62px; fill: none; stroke: currentColor; stroke-width: 6; stroke-linecap: round; stroke-linejoin: round; }
+.verdict-card span { font-size: .78rem; font-weight: 1000; letter-spacing: .12em; }
+.verdict-card.say { color: #ffd462; }
+.verdict-card.solve { color: #8ee8ff; }
+.verdict-card.save { color: #ff83bd; }
+.verdict-card.drop { color: var(--acid); }
+.perk-mark { position: absolute; top: 9px; right: 11px; display: grid; place-items: center; min-width: 27px; height: 27px; padding: 0 5px; border-radius: 999px; color: #160820; background: currentColor; font-size: .7rem; font-style: normal; font-weight: 1000; box-shadow: 0 0 13px currentColor; }
+
+@keyframes verdict-turn { to { transform: translateX(-50%) rotate(360deg); } }
+
 .upgrade-halo {
   position: absolute;
   width: min(92vw, 520px);
@@ -1276,7 +1379,11 @@ button:focus-visible {
 }
 
 .context-help-card[data-tip="press-cork"] .sideview-help,
-.context-help-card[data-tip="sideview-controls"] .cork-help { display: none; }
+.context-help-card[data-tip="press-cork"] .mystery-help,
+.context-help-card[data-tip="sideview-controls"] .cork-help,
+.context-help-card[data-tip="sideview-controls"] .mystery-help,
+.context-help-card[data-tip="press-mystery"] .cork-help,
+.context-help-card[data-tip="press-mystery"] .sideview-help { display: none; }
 
 .cork-help { gap: 24px; }
 .cork-help > b { color: var(--acid); font-size: 2.4rem; animation: lesson-arrow 1s ease-in-out infinite; }
@@ -1304,6 +1411,10 @@ button:focus-visible {
 .lesson-grapple i::before { content: ""; position: absolute; left: -7px; bottom: -8px; width: 18px; height: 18px; border: 4px solid var(--acid); border-radius: 50%; }
 .lesson-grapple b { z-index: 1; align-self: end; padding-bottom: 6px; color: var(--cream); font-size: 1.7rem; }
 .lesson-dash { font-size: 2.4rem; animation: lesson-arrow 1s ease-in-out infinite; }
+.mystery-help { gap: 8px; }
+.mystery-help .lesson-clue { flex: 0 0 44px; width: 44px; height: 44px; }
+.mystery-help > b { margin-left: 2px; color: var(--acid); font-size: 1.7rem; animation: lesson-arrow 1s ease-in-out infinite; }
+.lesson-choice { display: grid; place-items: center; width: 50px; height: 50px; border: 3px solid var(--acid); border-radius: 50%; color: var(--acid); font-size: 1.8rem; font-weight: 1000; box-shadow: 0 0 18px rgba(217,255,69,.4); }
 
 .context-help h2 { margin: 6px 0 8px; color: var(--cream); font-size: clamp(1.35rem, 6vw, 1.8rem); line-height: 1.05; text-align: center; }
 .context-help p { max-width: 300px; margin: 0 0 22px; color: #e9dff0; font-size: 1rem; font-weight: 750; line-height: 1.35; text-align: center; }

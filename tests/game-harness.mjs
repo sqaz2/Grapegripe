@@ -63,7 +63,7 @@ export async function loadGame(options = {}) {
   };
   // Expose functions in this test context only; production has no debug mutation API.
   const source = readFileSync(new URL('../public/journey.js', import.meta.url), 'utf8').replace(/^import .*?;\n/gm, '');
-  vm.runInNewContext(source + `\nglobalThis.game = { state, input, regions, sideviewDefinition, boot, resetGame, enterRegion, moveActor, updateMovement, updateEnemies, updateBolts, updateEncounter, update, resize, draw, frame, clearInput, spawnEnemy, hitEnemy, attack, dash, unleashGripe, fireUltimate, completeRegion, pauseGame, resumeGame, openMap, closeMap, chooseUpgrade, finishGame, completeObjective, useContextTarget, updateContextTarget, startSideview, finishSideview, sideviewAction, showContextHelp, dismissContextHelp, toggleGameplayHelp };`, scope);
+  vm.runInNewContext(source + `\nglobalThis.game = { state, input, regions, sideviewDefinition, boot, resetGame, enterRegion, moveActor, updateMovement, updateEnemies, updateBolts, updateEncounter, update, resize, draw, frame, clearInput, spawnEnemy, hitEnemy, damageHero, attack, dash, unleashGripe, fireUltimate, completeRegion, pauseGame, resumeGame, openMap, closeMap, chooseUpgrade, finishGame, completeObjective, useContextTarget, updateContextTarget, startSideview, finishSideview, sideviewAction, showContextHelp, dismissContextHelp, toggleGameplayHelp, openVerdict, chooseVerdict };`, scope);
   await new Promise(setImmediate);
   return { ...scope.game, element, options, drawnImages };
 }

@@ -2,7 +2,7 @@
 
 This brief guided the conversion of the four-region combat demo into a journey with distinct objectives, permanent discoveries, an optional route and a proper ending. More identical waves would have added length without solving that problem.
 
-**Release status:** campaign persistence, varied objectives, the optional side-view passage, the staged ending, restoration loop, visual guide and rematch are implemented. The remaining material gap is a truly authored reusable character rig/atlas: the current side gait still has imperfect foot phases, and special actions are staged from the existing atlas.
+**Release status:** campaign persistence, varied objectives, the optional side-view passage, the staged ending, restoration loop, visual guide and rematch are implemented. Press Pit now includes a complete visual mystery: three icon clues unlock a four-way verdict, and SAY/SOLVE/SAVE/DROP persist as distinct combat perks. The remaining material gap is a truly authored reusable character rig/atlas: the current side gait still has imperfect foot phases, and special actions are staged from the existing atlas.
 
 ## Preserve the user's decisions
 
@@ -32,7 +32,7 @@ Proposed first-release size: a hub and roughly 10–12 compact, authored rooms a
 | --- | --- | --- | --- |
 | Root Cellar | Free the companion; power two visible relays; defeat one guarding encounter | Learn move, attack, dash; companion points at usable objects | A dead lift lights up, a shortcut opens, the hub gains a working landmark |
 | Vineway | Choose between a guarded short bridge and a longer route with a discoverable return shortcut | Optional risk changes the reward; companion can reveal a hidden passage | Both bridges are visible on the journey map; the discovered shortcut remains open |
-| Press Pit | Carry a cork to a machine while choosing when to put it down to fight; interrupt the machine at its exposed phase | Heavy-shot or dash interaction changes the environment; placement matters | The press changes from a hazard into a traversal aid |
+| Press Pit | Carry a cork, investigate three icon clues, power both vents, then choose SAY/SOLVE/SAVE/DROP | Heavy-shot interactions change the machine; the final choice grants a persistent play-style perk | The press becomes a verdict altar and the chosen perk travels into Sourwood |
 | Sourwood | Rescue a stranded creature, reconnect the route, then face the Gripe Maw | Combine traversal, target priority, companion interaction and timed ultimate use | The corrupted route blooms; the rescued characters and companion react |
 | Return | Travel back through the restored hub and select a new goal | Choose a missed route, mastery encounter or different build | An ending, a changed world and voluntary reasons to return |
 

@@ -27,9 +27,13 @@ export const missionDefinitions = Object.freeze({
     anchor: [477, 1240],
     props: [
       { id: 'press-cork', objectiveId: 'press-cork-found', kind: 'cork', position: [477, 1150], radius: 56 },
+      { id: 'press-clue-seen', objectiveId: 'press-clue-seen', kind: 'clue-seen', position: [430, 1060], radius: 52 },
+      { id: 'press-clue-read', objectiveId: 'press-clue-read', kind: 'clue-read', position: [700, 900], radius: 52 },
+      { id: 'press-clue-wanted', objectiveId: 'press-clue-wanted', kind: 'clue-wanted', position: [255, 700], radius: 52 },
       { id: 'press-socket', objectiveId: 'press-cork-delivered', kind: 'socket', position: [477, 760], radius: 62 },
       { id: 'press-vent-west', objectiveId: 'press-vent-west', kind: 'vent', position: [350, 585], radius: 46 },
       { id: 'press-vent-east', objectiveId: 'press-vent-east', kind: 'vent', position: [600, 585], radius: 46 },
+      { id: 'press-verdict', objectiveId: 'press-verdict', kind: 'verdict', position: [480, 470], radius: 68 },
       { id: 'press-exit', kind: 'lift', position: [491, 369], radius: 54 },
     ],
     encounters: [

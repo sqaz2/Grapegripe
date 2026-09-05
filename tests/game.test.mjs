@@ -177,6 +177,36 @@ test('heavy shots power press vents and the optional side passage returns safely
   assert.equal(g.state.mode, 'playing'); assert.equal(g.state.regionIndex, 1);
 });
 
+test('Press Pit clues unlock a persistent visual verdict with four real perks', async () => {
+  const storage = new Map();
+  const g = await loadGame({ storage }); g.resetGame(); g.enterRegion(2);
+  for (const id of ['press-cork-found', 'press-cork-delivered', 'press-clue-seen', 'press-clue-read', 'press-clue-wanted', 'press-vent-west', 'press-vent-east']) {
+    assert.equal(g.completeObjective(id), true, id);
+  }
+  assert.equal(g.openVerdict(), true);
+  assert.equal(g.state.mode, 'verdict');
+  assert.equal(g.element('verdict-screen').hidden, false);
+  assert.equal(g.chooseVerdict('say'), true);
+  assert.equal(g.state.mode, 'playing');
+  assert.equal(g.state.campaign.routeChoices.press, 'say');
+  assert.ok(g.state.campaign.completed.includes('press-verdict'));
+  assert.equal(g.state.lastStraw, g.state.maxStraw);
+  g.state.campaign.routeChoices.press = 'solve';
+  g.state.hero.attackCooldown = 0; g.state.hero.comboWindow = 0; g.attack();
+  g.state.hero.attackCooldown = 0; g.state.hero.comboWindow = .4; g.attack();
+  assert.equal(g.state.bolts.at(-1).heavy, true, 'solve should make every second shot heavy');
+
+  g.state.campaign.routeChoices.press = 'save'; g.enterRegion(3);
+  const health = g.state.hero.health;
+  g.damageHero(30);
+  assert.equal(g.state.hero.health, health, 'save should block the first hit in an area');
+  assert.equal(g.state.guardAvailable, false);
+
+  g.state.campaign.routeChoices.press = 'drop';
+  g.state.hero.dashCooldown = 0; g.dash();
+  assert.ok(g.state.hero.dashCooldown < g.state.hero.dashMaxCooldown * .7, 'drop should sharply shorten dash recharge');
+});
+
 test('the phone joystick remains live inside the optional side passage', async () => {
   const g = await loadGame(); g.resetGame(); g.enterRegion(1); g.startSideview();
   g.dismissContextHelp();

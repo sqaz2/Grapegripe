@@ -47,6 +47,7 @@ const attackButton = $('attack-button');
 const dashButton = $('dash-button');
 const companionButton = $('companion-button');
 const upgradeScreen = $('upgrade-screen');
+const verdictScreen = $('verdict-screen');
 const endScreen = $('end-screen');
 const finalScore = $('final-score');
 const restartButton = $('restart-button');
@@ -192,6 +193,8 @@ const state = {
   carried: null,
   contextTarget: null,
   sideview: null,
+  guardAvailable: false,
+  clueReaction: null,
   helpEnabled: readSaved('grape-gripe-gameplay-help') !== 'off',
   helpReturnMode: 'playing',
   activeHelp: null,
@@ -210,6 +213,11 @@ const contextHelpDefinitions = Object.freeze({
     title: 'Climb the Vineway',
     copy: 'Push up to jump. Hold the green vine button to swing. Release to fly.',
     announcement: 'Push up to jump. Hold the green vine button to swing, then release.',
+  },
+  'press-mystery': {
+    title: 'There is more to this gripe',
+    copy: 'Find what was seen, what was read, and what was wanted. Then choose what happens.',
+    announcement: 'Three clues reveal the choice: seen, read, and wanted.',
   },
 });
 
@@ -496,6 +504,7 @@ function hideOverlays() {
   mapScreen.hidden = true;
   guideScreen.hidden = true;
   upgradeScreen.hidden = true;
+  verdictScreen.hidden = true;
   endScreen.hidden = true;
 }
 
@@ -522,6 +531,8 @@ function enterRegion(index, fresh = false, anchorId = null) {
   state.sideview = null;
   configureSideviewControls(false);
   state.bossFinale = null;
+  state.clueReaction = null;
+  state.guardAvailable = state.campaign.routeChoices.press === 'save';
   state.guidance = { route: [], timer: 0, revision: -1 };
   hideOverlays();
   configureWorld();
@@ -547,6 +558,7 @@ function enterRegion(index, fresh = false, anchorId = null) {
     vx: 0, vy: 0, direction: 6, facingX: 0, facingY: -1,
     dashTime: 0, attackAnim: 0, trail: [], animator: createAnimator(),
   });
+  if (state.campaign.routeChoices.press === 'say' && index > 2) state.lastStraw = state.maxStraw;
   if (!fresh) state.hero.health = Math.min(state.hero.maxHealth, state.hero.health + 28);
   state.secret = { ...asPoint(data.secret), collected: false, phase: Math.random() * Math.PI * 2 };
   updateCamera(1);
@@ -749,11 +761,62 @@ function useContextTarget() {
     completeObjective(prop.objectiveId, { x: prop.x, y: prop.y, score: 90, energy: 6, anchorId: 'press-cork' });
     return true;
   }
+  if (prop.kind.startsWith('clue-')) {
+    const changed = completeObjective(prop.objectiveId, { x: prop.x, y: prop.y, score: 70, energy: 5, straw: 8 });
+    if (changed) {
+      state.clueReaction = { kind: prop.kind, until: state.time + 2.2 };
+      showContextHelp('press-mystery');
+    }
+    return changed;
+  }
+  if (prop.kind === 'verdict') { openVerdict(); return true; }
   if (prop.objectiveId) {
     completeObjective(prop.objectiveId, { x: prop.x, y: prop.y });
     return true;
   }
   return false;
+}
+
+function openVerdict() {
+  if (state.mode !== 'playing' || !objectiveAvailable(state.campaign, 'press-verdict')) return false;
+  clearInput();
+  state.returnMode = 'playing';
+  state.mode = 'verdict';
+  verdictScreen.hidden = false;
+  showGameControls(false);
+  announce('Choose: say it, solve it, save it, or drop it.');
+  return true;
+}
+
+function chooseVerdict(choice) {
+  if (state.mode !== 'verdict' || !['say', 'solve', 'save', 'drop'].includes(choice)) return false;
+  const prop = state.mission?.props.find((item) => item.kind === 'verdict');
+  const changed = completeObjective('press-verdict', {
+    routeChoice: choice,
+    x: prop?.x ?? state.hero.x,
+    y: prop?.y ?? state.hero.y,
+    score: 160,
+    energy: 12,
+    straw: choice === 'say' ? state.maxStraw : 28,
+    anchorId: 'press-platform',
+  });
+  if (!changed) return false;
+  if (choice === 'say') state.lastStraw = state.maxStraw;
+  if (choice === 'save') state.guardAvailable = true;
+  verdictScreen.hidden = true;
+  state.mode = 'playing';
+  showGameControls(true);
+  state.shake = prefersReducedMotion ? 5 : 13;
+  state.shockwaves.push({ x: state.hero.x, y: state.hero.y, radius: 20, max: 230, life: 1.05, color: verdictColor(choice) });
+  burstParticles(state.hero.x, state.hero.y - 35, verdictColor(choice), 48, 245);
+  saveProgress('press-platform');
+  updateUI();
+  announce(`${choice}. The choice will travel with you.`);
+  return true;
+}
+
+function verdictColor(choice = state.campaign.routeChoices.press) {
+  return { say: '#ffd462', solve: '#8ee8ff', save: '#ff83bd', drop: '#d9ff45' }[choice] || '#d9ff45';
 }
 
 function sideviewAction() {
@@ -799,9 +862,10 @@ function attack() {
     setDirection(hero, vector.x, vector.y);
   }
 
-  if (hero.comboWindow > 0) hero.combo = (hero.combo + 1) % 3;
+  const comboLength = state.campaign.routeChoices.press === 'solve' ? 2 : 3;
+  if (hero.comboWindow > 0) hero.combo = (hero.combo + 1) % comboLength;
   else hero.combo = 0;
-  const heavy = hero.combo === 2;
+  const heavy = hero.combo === comboLength - 1;
   hero.comboWindow = 0.52;
   hero.attackCooldown = (heavy ? 0.36 : 0.25) / hero.attackRate;
   hero.attackAnim = heavy ? 0.34 : 0.22;
@@ -838,7 +902,7 @@ function dash() {
     let direction = Math.sign(input.joyX) || side.direction || 1;
     side.direction = direction;
     side.dashTime = 0.24;
-    side.dashCooldown = 1.1;
+    side.dashCooldown = state.campaign.routeChoices.press === 'drop' ? 0.7 : 1.1;
     side.vx = direction * 540;
     if (!side.grounded) side.vy = Math.min(side.vy, -110);
     sound('dash'); vibrate(16);
@@ -855,7 +919,7 @@ function dash() {
   setDirection(hero, hero.dashX, hero.dashY);
   hero.dashTime = 0.23;
   hero.invulnerable = 0.34;
-  hero.dashCooldown = hero.dashMaxCooldown;
+  hero.dashCooldown = hero.dashMaxCooldown * (state.campaign.routeChoices.press === 'drop' ? 0.62 : 1);
   hero.trail = [];
   state.shockwaves.push({ x: hero.x, y: hero.y, radius: 12, max: 70, life: 0.38, color: '#bd82ed' });
   burstParticles(hero.x, hero.y, '#bd82ed', 16, 155);
@@ -1047,6 +1111,16 @@ function killEnemy(enemy) {
 function damageHero(amount) {
   const hero = state.hero;
   if (!hero || hero.invulnerable > 0 || state.mode !== 'playing') return;
+  if (state.campaign.routeChoices.press === 'save' && state.guardAvailable) {
+    state.guardAvailable = false;
+    hero.invulnerable = 0.85;
+    hero.shieldPulse = 0.82;
+    state.shockwaves.push({ x: hero.x, y: hero.y, radius: 18, max: 105, life: 0.62, color: '#ff83bd' });
+    burstParticles(hero.x, hero.y - 22, '#ff83bd', 24, 170);
+    sound('clear'); vibrate([12, 20, 12]);
+    announce('Your companion saved you from the hit.');
+    return;
+  }
   const reduction = 1 - state.upgrades.shield * 0.14;
   hero.health = Math.max(0, hero.health - Math.round(amount * reduction));
   hero.invulnerable = 0.68;
@@ -1705,7 +1779,9 @@ function updateUI() {
   objectiveStrip.hidden = Boolean(boss);
   if (boss) bossHealthFill.style.width = `${100 * boss.hp / boss.maxHp}%`;
 
-  const dashRatio = state.mode === 'sideview' && state.sideview ? state.sideview.dashCooldown / 1.1 : state.hero.dashCooldown / state.hero.dashMaxCooldown;
+  const dropFactor = state.campaign.routeChoices.press === 'drop' ? 0.62 : 1;
+  const sideDashMax = state.campaign.routeChoices.press === 'drop' ? 0.7 : 1.1;
+  const dashRatio = state.mode === 'sideview' && state.sideview ? state.sideview.dashCooldown / sideDashMax : state.hero.dashCooldown / (state.hero.dashMaxCooldown * dropFactor);
   dashButton.style.setProperty('--cooldown', String(1 - dashRatio));
   dashButton.disabled = dashRatio > 0;
   const ready = state.mode === 'playing' && objectiveComplete('root-companion') && state.lastStraw >= state.maxStraw;
@@ -1846,6 +1922,32 @@ function drawMissionProps() {
       ctx.strokeStyle = done ? '#d9ff45' : ready ? '#ffd462' : '#724887'; ctx.lineWidth = 8;
       ctx.beginPath(); ctx.arc(0, 12, 38, Math.PI, 0); ctx.lineTo(38, 32); ctx.moveTo(-38, 32); ctx.lineTo(-38, 12); ctx.stroke();
       ctx.fillStyle = `rgba(217,255,69,${done ? .32 : .12})`; ctx.beginPath(); ctx.ellipse(0, 18, 28, 34, 0, 0, Math.PI * 2); ctx.fill();
+    } else if (prop.kind.startsWith('clue-')) {
+      const clueColor = done ? '#d9ff45' : ready ? '#fff8dc' : '#704183';
+      ctx.fillStyle = done ? 'rgba(217,255,69,.24)' : 'rgba(79,30,103,.84)';
+      ctx.strokeStyle = clueColor; ctx.lineWidth = 5; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+      ctx.beginPath(); ctx.arc(0, 0, 33, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+      if (prop.kind === 'clue-seen') {
+        ctx.beginPath(); ctx.moveTo(-23, 0); ctx.quadraticCurveTo(0, -22, 23, 0); ctx.quadraticCurveTo(0, 22, -23, 0); ctx.stroke();
+        ctx.fillStyle = clueColor; ctx.beginPath(); ctx.arc(0, 0, 8, 0, Math.PI * 2); ctx.fill();
+      } else if (prop.kind === 'clue-read') {
+        ctx.beginPath(); ctx.roundRect(-17, -23, 34, 46, 4); ctx.stroke();
+        for (const y of [-10, 1, 12]) { ctx.beginPath(); ctx.moveTo(-9, y); ctx.lineTo(10, y); ctx.stroke(); }
+      } else {
+        ctx.fillStyle = '#ff5aa9'; ctx.beginPath();
+        ctx.moveTo(0, 22); ctx.bezierCurveTo(-38, 0, -22, -26, 0, -10); ctx.bezierCurveTo(22, -26, 38, 0, 0, 22); ctx.fill();
+      }
+      if (done) { ctx.strokeStyle = '#32143f'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(14, 17); ctx.lineTo(22, 25); ctx.lineTo(36, 8); ctx.stroke(); }
+    } else if (prop.kind === 'verdict') {
+      const choice = state.campaign.routeChoices.press;
+      const glow = choice ? verdictColor(choice) : ready ? '#d9ff45' : '#6b377d';
+      ctx.strokeStyle = glow; ctx.lineWidth = 6;
+      for (let ring = 0; ring < 3; ring += 1) {
+        ctx.globalAlpha = .9 - ring * .22;
+        ctx.beginPath(); ctx.arc(0, 0, 24 + ring * 15 + Math.sin(state.time * 3 + ring) * 3, 0, Math.PI * 2); ctx.stroke();
+      }
+      ctx.globalAlpha = 1; ctx.fillStyle = glow; ctx.font = '1000 36px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText(choice ? ({ say: '!', solve: '×', save: '♥', drop: '↓' }[choice]) : '?', 0, 0);
     } else if (prop.kind === 'cork') drawCork(0, -10, 0.85);
     else if (prop.kind === 'socket') {
       ctx.fillStyle = done ? '#87cb22' : '#4d2364'; ctx.strokeStyle = done ? '#d9ff45' : ready ? '#ffd462' : '#8b5aa3'; ctx.lineWidth = 5;
@@ -2131,6 +2233,16 @@ function drawCompanion() {
   // Existing companion art has its own crop and transform, independent of gait.
   // Replace this crop with a dedicated companion atlas in Sol's animation pass.
   ctx.drawImage(images.heroFront, 427, 0, 179, 233, -17, -22, 34, 44);
+  if (state.clueReaction && state.time < state.clueReaction.until) {
+    const life = clamp((state.clueReaction.until - state.time) / 2.2, 0, 1);
+    ctx.globalAlpha = Math.min(1, life * 2.5);
+    ctx.fillStyle = '#fff8dc'; ctx.strokeStyle = '#32143f'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.arc(18, -35, 22, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(6, -20); ctx.lineTo(2, -8); ctx.lineTo(17, -18); ctx.fill();
+    ctx.fillStyle = state.clueReaction.kind === 'clue-wanted' ? '#ff5aa9' : '#502064';
+    ctx.font = '1000 22px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillText(state.clueReaction.kind === 'clue-seen' ? '●' : state.clueReaction.kind === 'clue-read' ? '≡' : '♥', 18, -35);
+  }
   if (funny && gagTime > 0.68 && gagTime < 1.18) {
     const flash = 1 - Math.abs(gagTime - 0.93) / 0.25;
     ctx.globalAlpha = clamp(flash, 0, 1);
@@ -2161,6 +2273,18 @@ function drawHero() {
     ctx.beginPath();
     ctx.ellipse(hero.x, hero.y - 34, 52, 67, 0, 0, Math.PI * 2);
     ctx.stroke();
+  }
+  const pressChoice = state.campaign.routeChoices.press;
+  if (pressChoice) {
+    const angle = state.time * (pressChoice === 'drop' ? 3.2 : 1.45);
+    const radius = 39 + Math.sin(state.time * 2.4) * 3;
+    ctx.save(); ctx.translate(hero.x, hero.y - 48);
+    ctx.fillStyle = verdictColor(pressChoice); ctx.shadowBlur = 14; ctx.shadowColor = verdictColor(pressChoice);
+    ctx.beginPath(); ctx.arc(Math.cos(angle) * radius, Math.sin(angle) * radius * .38, 4.5, 0, Math.PI * 2); ctx.fill();
+    if (pressChoice === 'save' && state.guardAvailable) {
+      ctx.strokeStyle = 'rgba(255,131,189,.58)'; ctx.lineWidth = 3; ctx.beginPath(); ctx.ellipse(0, 38, 42, 16, 0, 0, Math.PI * 2); ctx.stroke();
+    }
+    ctx.restore();
   }
   drawHeroAt(hero.x, hero.y, hero.direction);
   drawCompanion();
@@ -2651,6 +2775,7 @@ pauseButton.addEventListener('click', () => state.mode === 'paused' ? resumeGame
 resumeButton.addEventListener('click', resumeGame);
 gameplayHelpToggle.addEventListener('click', toggleGameplayHelp);
 contextHelpContinue.addEventListener('click', dismissContextHelp);
+document.querySelectorAll('[data-verdict]').forEach((button) => button.addEventListener('click', () => chooseVerdict(button.dataset.verdict)));
 mapButton.addEventListener('click', openMap);
 closeMapButton.addEventListener('click', closeMap);
 guideButton.addEventListener('click', openGuide);

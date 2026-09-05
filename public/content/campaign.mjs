@@ -29,15 +29,19 @@ export const campaignChapters = Object.freeze([
   {
     id: 'press',
     name: 'Press Pit',
-    exitRequires: ['press-cork-delivered', 'press-vent-west', 'press-vent-east'],
+    exitRequires: ['press-verdict'],
     checkpoint: 'press-platform',
     reward: 'press-restored',
     objectives: [
       { id: 'press-cork-found', kind: 'carry', target: 'press-cork', requires: [] },
       { id: 'press-cork-delivered', kind: 'deliver', target: 'press-socket', requires: ['press-cork-found'] },
+      { id: 'press-clue-seen', kind: 'clue', target: 'press-clue-seen', requires: ['press-cork-found'] },
+      { id: 'press-clue-read', kind: 'clue', target: 'press-clue-read', requires: ['press-cork-found'] },
+      { id: 'press-clue-wanted', kind: 'clue', target: 'press-clue-wanted', requires: ['press-cork-found'] },
       { id: 'press-vent-west', kind: 'strike', target: 'press-vent-west', requires: ['press-cork-delivered'] },
       { id: 'press-vent-east', kind: 'strike', target: 'press-vent-east', requires: ['press-cork-delivered'] },
-    ],
+      { id: 'press-verdict', kind: 'choose', target: 'press-verdict', requires: ['press-cork-delivered', 'press-clue-seen', 'press-clue-read', 'press-clue-wanted', 'press-vent-west', 'press-vent-east'] },
+  ],
   },
   {
     id: 'sourwood',

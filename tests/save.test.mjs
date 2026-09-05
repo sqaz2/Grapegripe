@@ -26,3 +26,12 @@ test('save keeps a recoverable previous copy', () => {
   storage.setItem(SAVE_KEY, '{broken');
   assert.equal(loadSave(storage).run.energy, 0);
 });
+
+test('the Press Pit verdict survives validation and reload', () => {
+  const storage = memoryStorage();
+  const save = newSave();
+  save.campaign.routeChoices.press = 'save';
+  const stored = storeSave(save, storage);
+  assert.equal(stored.campaign.routeChoices.press, 'save');
+  assert.equal(loadSave(storage).campaign.routeChoices.press, 'save');
+});
