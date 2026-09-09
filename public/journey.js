@@ -4,7 +4,10 @@ import { terrainDefinitions } from './engine/terrain-data.mjs';
 import { createAnimator, advanceAnimator, sampleAnimation } from './engine/animation.mjs';
 import { heroAtlas } from './engine/hero-atlas.mjs';
 import { campaignChapters } from './content/campaign.mjs';
-import { missionDefinitions, sideviewDefinition } from './content/missions.mjs';
+import { missionDefinitions, sideviewDefinition as originalSideviewDefinition } from './content/missions.mjs';
+import { rangerExpeditions } from './content/frontier.mjs';
+import { createFrontierState } from './engine/frontier-state.mjs';
+import { createRangerWorld } from './engine/frontier-scene.mjs';
 import { applyCampaignEvent, chapterComplete, createCampaignState, objectiveAvailable } from './engine/campaign.mjs';
 import { inspectSave, loadSave, newSave, restartAdventure, storeSave, MAX_ENERGY, upgradeChapters } from './engine/save.mjs';
 import { rememberCampaign, rememberEnding } from './engine/journey-memory.mjs';
@@ -63,6 +66,7 @@ const sideRouteNode = $('side-route-node');
 const sideMasteryNode = $('side-mastery-node');
 const mapStamps = $('map-stamps');
 const saveStatus = $('save-status');
+let sideviewDefinition = originalSideviewDefinition;
 
 const imagePaths = {
   root: './assets/root-cellar.webp',
@@ -78,6 +82,9 @@ const imagePaths = {
   brute: './assets/thorn-brute.webp',
   boss: './assets/gripe-maw.webp',
   sideview: './assets/vineway-sideview.webp',
+  town: './assets/ranger-town.webp',
+  terraces: './assets/ranger-terraces.webp',
+  fair: './assets/ranger-fair.webp',
 };
 
 const regions = [
@@ -201,6 +208,8 @@ const state = {
   ambience: [],
   ultimate: null,
   campaign: createCampaignState(),
+  frontier: createFrontierState(),
+  inFrontier: false,
   memory: null,
   saveRevision: 0,
   adventureId: null,
@@ -301,6 +310,7 @@ function snapshotAdventure(anchorId = state.checkpoint.anchorId, chapterId = sta
   envelope.revision = state.saveRevision;
   envelope.memory = rememberCampaign(state.memory || envelope.memory, state.campaign);
   envelope.campaign = state.campaign;
+  envelope.frontier = structuredClone(state.frontier);
   envelope.checkpoint = { chapterId, anchorId };
   envelope.run = { id: state.adventureId || envelope.run.id, score: state.score, energy: state.energy, upgrades: { ...state.upgrades }, endingSeen: state.endingSeen, agedPoorly: state.agedPoorly, pendingUpgrade: state.pendingUpgrade, upgradesClaimed: [...state.upgradesClaimed] };
   envelope.preferences.sound = state.sound;
@@ -320,6 +330,7 @@ function showSaveStatus(status) {
 }
 
 function saveProgress(anchorId = `${regions[state.regionIndex].key}-start`, chapterId = regions[state.regionIndex].key) {
+  if (state.inFrontier) rangerWorld.capture();
   const envelope = snapshotAdventure(anchorId, chapterId);
   state.memory = envelope.memory;
   state.adventureId = envelope.run.id;
@@ -362,6 +373,7 @@ function completeObjective(objectiveId, options = {}) {
 
 function applySavedRun(save) {
   state.memory = save.memory;
+  state.frontier = save.frontier || createFrontierState();
   state.saveRevision = save.revision;
   state.adventureId = save.run.id;
   state.campaign = createCampaignState(save?.campaign);
@@ -500,7 +512,15 @@ function resetGame(options = {}) {
   applySavedRun(adventure);
   applyUpgradeStats();
   const chapterIndex = Math.max(0, regions.findIndex((region) => region.key === state.checkpoint.chapterId));
+  const frontier = structuredClone(state.frontier);
   enterRegion(chapterIndex, true, state.checkpoint.anchorId);
+  state.frontier = frontier;
+  if (continuing && frontier.active) {
+    const routeId = frontier.activeRoute;
+    rangerWorld.enter(frontier.mapId, null, { persist: false });
+    if (routeId) startSideview({ routeId });
+    return;
+  }
   if (continuing && state.pendingUpgrade) showUpgrade();
   if (!continuing) saveProgress('root-start');
 }
@@ -513,6 +533,7 @@ function showGameControls(show) {
   joystickZone.hidden = !show;
   actionCluster.hidden = !show;
   tutorialFocus.hidden = !show || state.tutorial !== 0;
+  if (state.inFrontier) rangerWorld.syncUI();
 }
 
 function syncGameplayHelp() {
@@ -597,9 +618,11 @@ function hideOverlays() {
   upgradeScreen.hidden = true;
   verdictScreen.hidden = true;
   endScreen.hidden = true;
+  $('ranger-panel').hidden = true;
 }
 
 function enterRegion(index, fresh = false, anchorId = null) {
+  if (state.inFrontier) rangerWorld.leave();
   clearInput();
   state.regionIndex = index;
   state.pendingRegion = index;
@@ -793,6 +816,7 @@ function propReady(prop) {
 }
 
 function updateContextTarget() {
+  if (state.inFrontier) { state.contextTarget = null; attackButton.classList.remove('is-context'); attackButton.setAttribute('aria-label', 'Fire equipped weapon'); return; }
   if (!state.mission || state.mode !== 'playing') { state.contextTarget = null; return; }
   let best = null;
   let bestDistance = Infinity;
@@ -806,22 +830,27 @@ function updateContextTarget() {
   attackButton.setAttribute('aria-label', best ? 'Use nearby object' : 'Attack');
 }
 
-function startSideview() {
+function startSideview({ routeId = null, fromStart = false } = {}) {
   clearInput();
+  sideviewDefinition = routeId ? rangerExpeditions[routeId] : originalSideviewDefinition;
+  const savedRoute = routeId ? rangerWorld.expeditionState(routeId) : null;
+  const startX = savedRoute && !fromStart ? savedRoute.checkpoint : sideviewDefinition.spawn.x;
+  const startPlatform = sideviewDefinition.platforms.find((p) => p.kind === 'stone' && startX >= p.x && startX <= p.x+p.width);
   state.mode = 'sideview';
   state.sideview = {
-    x: sideviewDefinition.spawn.x, y: sideviewDefinition.spawn.y,
-    vx: 0, vy: 0, grounded: false, checkpointX: sideviewDefinition.spawn.x,
+    x: startX, y: savedRoute ? startPlatform?.y || sideviewDefinition.spawn.y : sideviewDefinition.spawn.y,
+    rangerRoute: routeId,
+    vx: 0, vy: 0, grounded: false, checkpointX: startX,
     cameraX: 0, direction: 1, dashTime: 0, dashCooldown: 0, actionCooldown: 0, finishTimer: 0,
     standingPlatformId: null, coyote: 0, jumpBuffer: 0, jumpLatch: false,
     grappleIndex: null, grappleTargetIndex: null, grapplePhase: 'none', grappleLength: 0,
     grappleAngle: 0, grappleAngularVelocity: 0, grappleWindup: 0, grappleGrace: 0, grappleMiss: 0, releaseFlash: 0,
-    receipts: sideviewDefinition.receipts.map((receipt, id) => ({ ...receipt, id, collected: false })),
-    receiptCount: 0,
-    flies: sideviewDefinition.flies.map((fly, id) => ({ ...fly, baseX: fly.x, id, defeated: false })),
-    flyCount: 0, hitCooldown: 0,
+    receipts: sideviewDefinition.receipts.map((receipt, id) => ({ ...receipt, id, collected: savedRoute?.receipts.includes(id) || false })),
+    receiptCount: savedRoute?.receipts.length || 0,
+    flies: sideviewDefinition.flies.map((fly, id) => ({ ...fly, baseX: fly.x, id, defeated: savedRoute?.flies.includes(id) || false })),
+    flyCount: savedRoute?.flies.length || 0, hitCooldown: 0,
     assistFailures: 0, assistDemo: 0, assistVineIndex: null,
-    masteryAwarded: state.campaign.mastered.includes('vineway-receipt-run'), masteryFlash: 0,
+    masteryAwarded: Boolean(routeId) || state.campaign.mastered.includes('vineway-receipt-run'), masteryFlash: 0,
   };
   state.contextTarget = null;
   attackButton.classList.remove('is-context');
@@ -831,10 +860,12 @@ function startSideview() {
   companionButton.disabled = true;
   announce('A hidden passage. Keep moving toward the light.');
   showContextHelp('sideview-controls');
+  if (routeId) { state.frontier.activeRoute = routeId; saveProgress(state.checkpoint.anchorId, state.checkpoint.chapterId); rangerWorld.syncUI(); }
 }
 
 function finishSideview() {
   if (!state.sideview || state.sideview.finishTimer > 0) return;
+  if (state.sideview.rangerRoute) return rangerWorld.finishExpedition();
   completeObjective('vineway-passage', { score: 180, energy: 15, straw: 30, x: state.hero.x, y: state.hero.y, anchorId: 'vineway-side-passage' });
   state.sideview.finishTimer = 0.75;
   sound('secret');
@@ -996,6 +1027,7 @@ function releaseSideGrapple(launch = true) {
 function attack() {
   if (state.mode === 'sideview') return sideviewAction();
   if (state.mode !== 'playing' || !state.hero || state.hero.attackCooldown > 0 || state.ultimate) return false;
+  if (state.inFrontier && rangerWorld.fireWeapon()) return true;
   updateContextTarget();
   if (state.contextTarget && useContextTarget()) return true;
   const hero = state.hero;
@@ -1073,7 +1105,7 @@ function dash() {
 }
 
 function unleashGripe() {
-  if (state.mode !== 'playing' || !objectiveComplete('root-companion') || state.lastStraw < state.maxStraw || state.ultimate) return;
+  if (state.mode !== 'playing' || (!state.inFrontier && !objectiveComplete('root-companion')) || state.lastStraw < state.maxStraw || state.ultimate) return;
   state.lastStraw = 0;
   state.ultimate = { time: 0, fired: false };
   state.hero.invulnerable = 1.7;
@@ -1279,7 +1311,10 @@ function damageHero(amount) {
   burstParticles(hero.x, hero.y, '#ff4c70', 18, 190);
   sound('hurt');
   vibrate([18, 28, 24]);
-  if (hero.health <= 0) finishGame(false);
+  if (hero.health <= 0) {
+    if (state.inFrontier) rangerWorld.recover();
+    else finishGame(false);
+  }
 }
 
 function updateMovement(dt) {
@@ -1420,9 +1455,10 @@ function updateBolts(dt) {
     }
     if (bolt.life <= 0) continue;
     for (const enemy of state.enemies) {
-      if (enemy.dead || distance(bolt, enemy) > bolt.radius + enemy.radius) continue;
+      if (enemy.dead || bolt.hitIds?.includes(enemy.id) || distance(bolt, enemy) > bolt.radius + enemy.radius) continue;
       hitEnemy(enemy, bolt.damage);
       if (bolt.heavy) explodeBolt(bolt, enemy);
+      if (bolt.pierce > 0) { bolt.pierce--; bolt.hitIds.push(enemy.id); continue; }
       bolt.life = 0;
       break;
     }
@@ -1713,7 +1749,9 @@ function updateSideview(dt) {
     side.standingPlatformId = null;
   }
   side.y = nextY;
-  for (const checkpoint of sideviewDefinition.checkpoints) if (side.x >= checkpoint) side.checkpointX = checkpoint;
+  const lastCheckpoint = side.checkpointX;
+  for (const checkpoint of sideviewDefinition.checkpoints) if (side.x >= checkpoint) side.checkpointX = Math.max(side.checkpointX, checkpoint);
+  if (side.rangerRoute && lastCheckpoint !== side.checkpointX) saveProgress(state.checkpoint.anchorId, state.checkpoint.chapterId);
   if (side.y > 760) {
     side.assistFailures += 1;
     side.x = side.checkpointX;
@@ -1741,6 +1779,7 @@ function updateSideview(dt) {
     burstParticles(receipt.x, receipt.y, '#ffcd54', 24, 165);
     state.shockwaves.push({ x: receipt.x, y: receipt.y, radius: 5, max: 55, life: .42, color: '#ffcd54' });
     sound('collect'); vibrate(11);
+    if (side.rangerRoute) saveProgress(state.checkpoint.anchorId, state.checkpoint.chapterId);
   }
   for (const fly of side.flies) {
     if (fly.defeated) continue;
@@ -1757,6 +1796,7 @@ function updateSideview(dt) {
       state.shockwaves.push({ x: fly.x, y: fly.y, radius: 8, max: 78, life: .48, color: '#d9ff45' });
       burstParticles(fly.x, fly.y, '#d9ff45', 30, 210);
       sound('heavy'); vibrate([10, 18, 8]);
+      if (side.rangerRoute) saveProgress(state.checkpoint.anchorId, state.checkpoint.chapterId);
     } else {
       side.assistFailures += 1;
       releaseSideGrapple(false);
@@ -1790,7 +1830,7 @@ function updateSideview(dt) {
   const sideScale = viewport.height / 720;
   const sideViewWidth = viewport.width / sideScale;
   side.cameraX = lerp(side.cameraX, clamp(side.x - sideViewWidth * 0.38, 0, Math.max(0, sideviewDefinition.width - sideViewWidth)), 1 - Math.exp(-dt * 6));
-  if (side.x >= sideviewDefinition.exitX) finishSideview();
+  if (side.x >= sideviewDefinition.exitX) { finishSideview(); if (state.sideview !== side) return; }
   updateEffects(dt);
   updateUI();
 }
@@ -1847,7 +1887,8 @@ function update(dt) {
   updatePickups(dt);
   updateSourSpots(dt);
   if (state.mode !== 'playing') return;
-  updateEncounter(dt);
+  if (state.inFrontier) rangerWorld.update(dt);
+  else updateEncounter(dt);
   updateUltimate(dt);
   if (state.bossFinale) state.bossFinale.time += dt;
   updateEffects(dt);
@@ -1914,9 +1955,12 @@ function finishGame(won) {
     saveProgress(state.checkpoint.anchorId, state.checkpoint.chapterId);
     sound('win');
     writeSaved('grape-gripe-best-score', String(Math.max(Number(readSaved('grape-gripe-best-score') || 0), state.score)));
-    announce('The Sourwood is uncorked. Journey complete.');
+    announce('The Sourwood is uncorked. Your ranger invitation is waiting in Bunchborough.');
   } else announce('The Gripevine got the last word.');
   agedButton.hidden = !won;
+  restartButton.hidden = won;
+  $('town-button').hidden = !won;
+  $('ending-mark').textContent = won ? 'YOUR RANGER INVITATION HAS ARRIVED' : 'THE VINEYARD NEEDS ANOTHER TRY';
 }
 
 function pauseGame() {
@@ -1931,6 +1975,7 @@ function pauseGame() {
   showGameControls(false);
   pauseButton.hidden = false;
   soundButton.hidden = false;
+  if (state.inFrontier) saveProgress(state.checkpoint.anchorId, state.checkpoint.chapterId);
 }
 
 function resumeGame() {
@@ -1945,6 +1990,7 @@ function resumeGame() {
 }
 
 function openMap() {
+  if (state.inFrontier && ['playing', 'sideview'].includes(state.mode)) { rangerWorld.journal(); return; }
   if (state.mode !== 'playing') return;
   clearInput();
   state.returnMode = 'playing';
@@ -2050,11 +2096,13 @@ function updateUI() {
   const dashRatio = state.mode === 'sideview' && state.sideview ? state.sideview.dashCooldown / sideDashMax : state.hero.dashCooldown / (state.hero.dashMaxCooldown * dropFactor);
   dashButton.style.setProperty('--cooldown', String(1 - dashRatio));
   dashButton.disabled = dashRatio > 0;
-  const ready = state.mode === 'playing' && objectiveComplete('root-companion') && state.lastStraw >= state.maxStraw;
+  const ready = state.mode === 'playing' && (state.inFrontier || objectiveComplete('root-companion')) && state.lastStraw >= state.maxStraw;
   companionButton.disabled = !ready;
   companionButton.classList.toggle('is-ready', ready);
   companionButton.style.setProperty('--charge', String(state.lastStraw / state.maxStraw));
   if (state.mode === 'playing') updateContextTarget();
+  $('route-track').hidden = state.inFrontier;
+  if (state.inFrontier) { objectiveStrip.hidden = true; rangerWorld.syncUI(); }
 }
 
 function drawImageBottom(image, x, y, height, flip = 1, alpha = 1, rotation = 0, filter = 'none') {
@@ -2538,7 +2586,7 @@ function drawSideFly(fly, heroSpeed) {
 }
 
 function drawCompanion() {
-  if (regions[state.regionIndex].key === 'root' && !objectiveComplete('root-companion')) return;
+  if (!state.inFrontier && regions[state.regionIndex].key === 'root' && !objectiveComplete('root-companion')) return;
   const hero = state.hero;
   const pose = sampleAnimation(hero.animator, hero.direction);
   const funny = !prefersReducedMotion && pose.idleVariant === 'companion-bonk';
@@ -2986,7 +3034,7 @@ function drawSideview() {
 }
 
 function drawFinalePayoff() {
-  if (!state.ultimate || regions[state.regionIndex].key !== 'sourwood') return;
+  if (state.inFrontier || !state.ultimate || regions[state.regionIndex].key !== 'sourwood') return;
   const t = state.ultimate.time;
   if (t < 0.16 || t > 1.45) return;
   const hx = (state.hero.x - state.camera.x) * viewZoom();
@@ -3032,11 +3080,8 @@ function draw() {
   ctx.translate(shakeX, shakeY);
   ctx.scale(viewZoom(), viewZoom());
   ctx.translate(-state.camera.x, -state.camera.y);
-  drawBackground();
-  drawMissionProps();
-  drawExit();
-  drawGate();
-  drawSecret();
+  if (state.inFrontier) rangerWorld.drawFloor();
+  else { drawBackground(); drawMissionProps(); drawExit(); drawGate(); drawSecret(); }
   drawSourSpots();
   drawPickups();
   drawBolts();
@@ -3047,13 +3092,14 @@ function draw() {
     if (actor.type === 'hero') drawHero();
     else drawEnemy(actor.entity);
   }
+  if (state.inFrontier) rangerWorld.drawPeople();
   drawCarried();
   drawParticles();
   drawTerrainDebug();
   ctx.restore();
 
-  drawGuidance();
-  drawRegionIntro();
+  if (state.inFrontier) rangerWorld.drawCompass();
+  else { drawGuidance(); drawRegionIntro(); }
   drawUltimateOverlay();
   drawFinalePayoff();
   if (renderMode === 'travel') drawTravelMap();
@@ -3114,6 +3160,24 @@ function clearInput() {
   joystickZone.classList.remove('is-active'); attackButton.classList.remove('is-held');
   if (state.sideview) releaseSideGrapple(false);
 }
+
+const rangerWorld = createRangerWorld({
+  state, input, ctx, images, Terrain,
+  getViewport: () => viewport,
+  ui: {
+    hud: $('ranger-hud'), place: $('ranger-place'), goal: $('ranger-goal'), record: $('ranger-record'),
+    context: $('ranger-context'), weapon: $('ranger-weapon'), toast: $('ranger-toast'),
+    panel: $('ranger-panel'), panelTitle: $('ranger-panel-title'), panelCopy: $('ranger-panel-copy'),
+    panelContent: $('ranger-panel-content'), panelClose: $('ranger-panel-close'),
+  },
+  clearInput, hideOverlays, configureSideviewControls, showGameControls, applyUpgradeStats, updateCamera, updateUI,
+  saveProgress, announce, sound, drawImageBottom, spawnEnemy, nearestEnemy,
+  nextId: () => nextId++,
+  hideMapButton: () => { mapButton.hidden = true; },
+  startExpedition: (routeId, fromStart = false) => startSideview({ routeId, fromStart }),
+  enterPatrol: () => resetGame(),
+  recordSelection: () => { state.memory = rememberEnding(state.memory, state.campaign, state.adventureId, 'grapegripe:grand-vintage', state.frontier); },
+});
 
 joystickZone.addEventListener('pointerdown', (event) => {
   if (!['playing', 'sideview'].includes(state.mode)) return;
@@ -3177,6 +3241,7 @@ startButton.addEventListener('click', () => {
   if (!assetsReady) return;
   initializeSound();
   resetGame();
+  rangerWorld.enter('town');
 });
 continueButton.addEventListener('click', () => {
   if (!assetsReady) return;
@@ -3184,13 +3249,20 @@ continueButton.addEventListener('click', () => {
   if (!checkpoint) { continueButton.hidden = true; return; }
   initializeSound();
   resetGame({ continueSave: checkpoint });
+  if (!state.inFrontier && state.endingSeen) rangerWorld.enter('town');
 });
 restartButton.addEventListener('click', () => {
   if (!assetsReady) return;
   initializeSound();
+  if (state.mode === 'won') { rangerWorld.enter('town'); return; }
   hideOverlays();
   const checkpoint = state.sessionSave || readCheckpoint();
   resetGame(checkpoint ? { continueSave: checkpoint } : {});
+});
+$('town-button').addEventListener('click', () => rangerWorld.enter('town'));
+$('pause-town-button').addEventListener('click', () => {
+  if (state.inFrontier) rangerWorld.capture();
+  rangerWorld.enter('town');
 });
 agedButton.addEventListener('click', () => {
   if (!assetsReady) return;
@@ -3229,7 +3301,18 @@ soundButton.addEventListener('click', () => {
 window.addEventListener('keydown', (event) => {
   const key = event.key.toLowerCase();
   input.keys.add(key);
-  if (['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'shift', 'e', 'm'].includes(key)) event.preventDefault();
+  if (state.mode !== 'ranger-panel' && ['arrowup', 'arrowdown', 'arrowleft', 'arrowright', ' ', 'shift', 'e', 'm'].includes(key)) event.preventDefault();
+  if (state.mode === 'ranger-panel') {
+    input.keys.delete(key);
+    if (key === 'escape') rangerWorld.closePanel();
+    if (key === 'tab') {
+      const buttons = [...$('ranger-panel').querySelectorAll('button:not([disabled])')];
+      const index = buttons.indexOf(document.activeElement);
+      if (buttons.length) { event.preventDefault(); buttons[(index + (event.shiftKey ? buttons.length-1 : 1)) % buttons.length].focus(); }
+    }
+    return;
+  }
+  if (state.inFrontier && key === 'f' && !event.repeat) { rangerWorld.interact(); return; }
   if (state.mode === 'help') {
     input.keys.delete(key);
     if (key === ' ' || key === 'enter' || key === 'escape') dismissContextHelp();
@@ -3240,6 +3323,7 @@ window.addEventListener('keydown', (event) => {
     initializeSound();
     const checkpoint = readCheckpoint();
     resetGame(checkpoint ? { continueSave: checkpoint } : {});
+    if (!state.inFrontier && (!checkpoint || state.endingSeen)) rangerWorld.enter('town');
     return;
   }
   if (key === ' ') { initializeSound(); attack(); }

@@ -7,7 +7,10 @@ import { terrainDefinitions } from '../public/engine/terrain-data.mjs';
 import { createAnimator, advanceAnimator, sampleAnimation } from '../public/engine/animation.mjs';
 import { heroAtlas } from '../public/engine/hero-atlas.mjs';
 import { campaignChapters, chapterById } from '../public/content/campaign.mjs';
-import { missionDefinitions, sideviewDefinition } from '../public/content/missions.mjs';
+import { missionDefinitions, sideviewDefinition as originalSideviewDefinition } from '../public/content/missions.mjs';
+import { rangerExpeditions } from '../public/content/frontier.mjs';
+import { createFrontierState } from '../public/engine/frontier-state.mjs';
+import { createRangerWorld } from '../public/engine/frontier-scene.mjs';
 import { applyCampaignEvent, chapterComplete, createCampaignState, nextObjectives, objectiveAvailable } from '../public/engine/campaign.mjs';
 import { inspectSave, loadSave, newSave, restartAdventure, removeSave, storeSave, MAX_ENERGY, upgradeChapters } from '../public/engine/save.mjs';
 
@@ -58,7 +61,7 @@ export async function loadGame(options = {}) {
   const events = { window: {}, document: {} };
   const scope = {
     Terrain, checkpointPosition, terrainDefinitions, createAnimator, advanceAnimator, sampleAnimation, heroAtlas,
-    campaignChapters, chapterById, missionDefinitions, sideviewDefinition,
+    campaignChapters, chapterById, missionDefinitions, originalSideviewDefinition, rangerExpeditions, createFrontierState, createRangerWorld, structuredClone,
     applyCampaignEvent, chapterComplete, createCampaignState, nextObjectives, objectiveAvailable,
     inspectSave: () => inspectSave(adapter), loadSave: () => loadSave(adapter), newSave, restartAdventure, rememberCampaign, rememberEnding, eligibleEnding, MAX_ENERGY, upgradeChapters,
     removeSave: () => removeSave(adapter), storeSave: (save) => storeSave(save, adapter),
@@ -70,7 +73,7 @@ export async function loadGame(options = {}) {
   };
   // Expose functions in this test context only; production has no debug mutation API.
   const source = readFileSync(new URL('../public/journey.js', import.meta.url), 'utf8').replace(/^import .*?;\n/gm, '');
-  vm.runInNewContext(source + `\nglobalThis.game = { state, input, regions, sideviewDefinition, boot, resetGame, enterRegion, moveActor, updateMovement, updateEnemies, updateBolts, updateEncounter, update, resize, draw, frame, clearInput, spawnEnemy, hitEnemy, damageHero, attack, dash, unleashGripe, fireUltimate, completeRegion, pauseGame, resumeGame, openMap, closeMap, chooseUpgrade, finishGame, completeObjective, useContextTarget, updateContextTarget, startSideview, finishSideview, sideviewAction, showContextHelp, dismissContextHelp, toggleGameplayHelp, toggleWhining, triggerWhiningDemo, openVerdict, chooseVerdict };`, scope);
+  vm.runInNewContext(source + `\nglobalThis.game = { state, input, regions, get sideviewDefinition() { return sideviewDefinition; }, rangerWorld, saveProgress, boot, resetGame, enterRegion, moveActor, updateMovement, updateEnemies, updateBolts, updateEncounter, update, resize, draw, frame, clearInput, spawnEnemy, hitEnemy, damageHero, attack, dash, unleashGripe, fireUltimate, completeRegion, pauseGame, resumeGame, openMap, closeMap, chooseUpgrade, finishGame, completeObjective, useContextTarget, updateContextTarget, startSideview, finishSideview, sideviewAction, showContextHelp, dismissContextHelp, toggleGameplayHelp, toggleWhining, triggerWhiningDemo, openVerdict, chooseVerdict };`, scope);
   await new Promise(setImmediate);
-  return { ...scope.game, element, options, drawnImages, events, document: scope.document, adapter };
+  return { ...scope.game, get sideviewDefinition() { return scope.game.sideviewDefinition; }, element, options, drawnImages, events, document: scope.document, adapter };
 }

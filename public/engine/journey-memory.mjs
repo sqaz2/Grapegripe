@@ -41,9 +41,9 @@ export function rememberCampaign(memory, campaign) {
   return next;
 }
 
-export function rememberEnding(memory, campaign, runId, endingId) {
+export function rememberEnding(memory, campaign, runId, endingId, frontier = null) {
   const next = rememberCampaign(memory, campaign);
-  if (token(runId) && eligibleEnding(campaign, endingId) && !next.endings.some((ending) => ending.id === endingId)) {
+  if (token(runId) && eligibleEnding(campaign, endingId, frontier) && !next.endings.some((ending) => ending.id === endingId)) {
     next.endings.push({ id: endingId, runId });
   }
   return next;

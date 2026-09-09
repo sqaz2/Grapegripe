@@ -1569,6 +1569,174 @@ button:focus-visible {
   animation: none;
 }
 
+/* Grand Vintage: the world remains visible behind a compact field record. */
+.start-screen {
+  background: linear-gradient(180deg, #180c2566, #180c251a 45%, #180c25ee), url('./assets/ranger-town.webp') center / cover;
+}
+.start-chapter {
+  z-index: 2;
+  margin: 38px 0 0;
+  color: var(--acid);
+  font-weight: 900;
+  font-size: .82rem;
+  letter-spacing: .15em;
+  line-height: 1.8;
+  text-align: center;
+}
+.start-chapter span { color: var(--cream); font-size: .75rem; font-weight: 500; letter-spacing: .03em; }
+.ranger-hud {
+  position: absolute;
+  z-index: 12;
+  top: calc(var(--safe-top) + 48px);
+  left: calc(var(--safe-left) + 50px);
+  right: var(--safe-right);
+  max-width: 500px;
+  padding: 10px 13px;
+  border: 1px solid #fff8dc40;
+  border-radius: 16px;
+  background: #180c25eb;
+  box-shadow: 0 5px 20px #180c2544;
+  pointer-events: none;
+}
+.ranger-hud > div { display: flex; align-items: center; flex-wrap: wrap; gap: 3px 12px; }
+.ranger-hud strong { color: var(--cream); font-size: .84rem; }
+.ranger-hud span { color: var(--acid); font-size: .59rem; font-weight: 800; letter-spacing: .04em; }
+.ranger-hud p { margin: 5px 0 0; font-size: .72rem; line-height: 1.4; color: #ede0f1; }
+.ranger-context, .ranger-weapon {
+  position: absolute;
+  z-index: 24;
+  min-height: 44px;
+  padding: 10px 15px;
+  border: 1px solid #d9ff4580;
+  border-radius: 14px;
+  color: var(--cream);
+  background: #271338f2;
+  font-size: .78rem;
+  font-weight: 750;
+  touch-action: manipulation;
+  box-shadow: 0 6px 22px #09061166;
+}
+.ranger-context {
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + 220px);
+  width: max-content;
+  max-width: calc(100% - 30px);
+  transform: translateX(-50%);
+  color: #271338;
+  background: var(--acid);
+}
+.ranger-weapon { top: calc(var(--safe-top) + 142px); left: var(--safe-left); font-size: .7rem; }
+.ranger-toast {
+  position: absolute;
+  z-index: 23;
+  left: 50%;
+  bottom: calc(var(--safe-bottom) + 278px);
+  transform: translateX(-50%);
+  width: min(88%, 460px);
+  margin: 0;
+  padding: 10px 16px;
+  border-radius: 14px;
+  color: var(--cream);
+  background: #180c25ec;
+  text-align: center;
+  font-size: .78rem;
+  line-height: 1.45;
+  pointer-events: none;
+}
+.ranger-panel {
+  position: absolute;
+  z-index: 45;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--safe-top) var(--safe-right) var(--safe-bottom) var(--safe-left);
+  background: #100619b8;
+  backdrop-filter: blur(8px);
+}
+.ranger-panel-sheet {
+  position: relative;
+  width: min(100%, 580px);
+  max-height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  touch-action: pan-y;
+  padding: 28px 22px 22px;
+  border: 1px solid #fff8dc55;
+  border-radius: 26px;
+  background: linear-gradient(160deg, #412153, #1c1028 65%);
+  box-shadow: 0 20px 80px #090611aa;
+}
+.ranger-panel-sheet * { touch-action: pan-y; }
+.ranger-eyebrow { margin: 0 40px 12px 0; color: var(--acid); font-size: .64rem; font-weight: 900; letter-spacing: .18em; }
+.ranger-panel h1 { margin: 0 25px 12px 0; font-size: clamp(1.3rem, 6vw, 1.9rem); line-height: 1.15; }
+#ranger-panel-copy { margin: 0 0 20px; color: #e7d5ed; font-size: .92rem; line-height: 1.6; }
+.ranger-panel-close {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  font-size: 1.6rem;
+  color: var(--cream);
+  background: #fff8dc13;
+}
+#ranger-panel-content { display: grid; gap: 9px; }
+#ranger-panel-content > button {
+  display: grid;
+  gap: 5px;
+  width: 100%;
+  min-height: 50px;
+  padding: 13px 15px;
+  border: 1px solid #fff8dc35;
+  border-radius: 14px;
+  text-align: left;
+  color: var(--cream);
+  background: #fff8dc09;
+}
+#ranger-panel-content > button:first-of-type { border-color: #d9ff4577; background: #d9ff4510; }
+#ranger-panel-content > button:hover { background: #d9ff4520; }
+#ranger-panel-content strong { font-size: .86rem; }
+#ranger-panel-content button span { color: #dcc8e6; font-size: .76rem; line-height: 1.45; }
+.ranger-seals { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin: 0 0 10px; }
+.ranger-seals span { display: grid; gap: 4px; padding: 10px 2px; border: 1px solid #fff8dc25; border-radius: 12px; text-align: center; color: #cbb1d7; text-transform: capitalize; font-size: .65rem; }
+.ranger-seals b { font-size: 1.5rem; }
+.ranger-seals .earned { color: var(--acid); border-color: #d9ff4566; background: #d9ff450d; }
+.ranger-atlas { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-bottom: 10px; }
+.ranger-atlas figure { margin: 0; }
+.ranger-atlas img { display: block; width: 100%; aspect-ratio: 4 / 3; object-fit: cover; border-radius: 10px; }
+.ranger-atlas .unvisited img { opacity: .5; }
+.ranger-atlas figcaption { margin: 6px 0 0; font-size: .64rem; line-height: 1.35; color: #e2cdec; }
+.vintage-seal { color: var(--acid); font-size: 5rem; text-align: center; text-shadow: 0 0 40px #d9ff4533; }
+.town-button {
+  display: grid;
+  gap: 6px;
+  min-height: 58px;
+  width: min(100%, 330px);
+  padding: 14px 19px;
+  border: 1px solid #fff8dcbb;
+  border-radius: 18px;
+  color: #251031;
+  background: var(--acid);
+}
+.town-button strong { font-size: .79rem; letter-spacing: .06em; }
+.town-button span { font-size: .74rem; }
+.end-screen { display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 20px; overflow-y: auto; }
+.end-emblem { align-self: center; flex-shrink: 0; }
+@media (max-height: 620px) {
+  .ranger-hud { max-width: 360px; }
+  .ranger-hud p { font-size: .67rem; }
+  .ranger-context { bottom: calc(var(--safe-bottom) + 126px); max-width: 40%; }
+  .ranger-toast { bottom: calc(var(--safe-bottom) + 187px); max-width: 50%; }
+  .ranger-weapon { top: auto; bottom: calc(var(--safe-bottom) + 164px); }
+  .ranger-panel-sheet { padding: 20px; }
+  .start-chapter { margin-top: 27px; font-size: .7rem; }
+  .start-chapter span { display: none; }
+  .end-screen { gap: 10px; }
+  .end-emblem { width: min(24vh, 120px); }
+}
+
 @keyframes seed-turn {
   to { transform: rotate(360deg); }
 }

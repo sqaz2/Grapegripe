@@ -6,9 +6,9 @@
     <meta name="theme-color" content="#090611" />
     <meta
       name="description"
-      content="Travel the living Gripevine, battle corrupted complaints, and unleash the Grape Gripe."
+      content="A grape with Grand Vintage ambitions. Explore Bunchborough, work with grape rangers, swing the canopy, and earn your place at the Harvest Fair."
     />
-    <title>Grape Gripe — Journey Through the Gripevine</title>
+    <title>Grape Gripe — The Grand Vintage</title>
     <link rel="preload" href="./assets/root-cellar.webp" as="image" />
     <link rel="preload" href="./assets/grape-fighter.webp" as="image" />
     <link rel="stylesheet" href="./styles.css" />
@@ -18,7 +18,7 @@
       <p id="save-status" class="save-status" role="status" hidden></p>
       <canvas
         id="world"
-        aria-label="A top-down journey through four vineyard regions. Move in eight directions with the left control. Attack, dash, and unleash the Grape Gripe with the buttons on the right."
+        aria-label="Explore grape towns and vineyards to earn a Grand Vintage selection. Move in eight directions with the left control or WASD. Fire with Space, dash with Shift, talk with F, and open your record with M. Vine routes use Up to jump and the large button to grab a vine."
       ></canvas>
 
       <div id="loading-screen" class="loading-screen" aria-live="polite">
@@ -42,15 +42,31 @@
         <div class="start-actions">
           <button id="start-button" class="start-button" type="button" aria-label="Begin the journey">
             <svg viewBox="0 0 100 100" aria-hidden="true"><path d="M38 25 76 50 38 75Z" /></svg>
-            <span>NEW</span>
+            <span>TOWN</span>
           </button>
           <button id="continue-button" class="continue-button" type="button" aria-label="Continue from the last safe checkpoint" hidden>
             <svg viewBox="0 0 100 100" aria-hidden="true"><path d="M22 48h42L49 33l10-10 32 27-32 27-10-10 15-15H22Zm-9-30h12v64H13Z" /></svg>
             <span>CONTINUE</span>
           </button>
         </div>
-        <div class="start-waves" aria-hidden="true">
-          <i></i><i></i><i></i><i class="boss-dot"></i>
+        <p class="start-chapter">THE GRAND VINTAGE<br/><span>A grape with excellent intentions.</span></p>
+      </section>
+
+      <div id="ranger-hud" class="ranger-hud" hidden>
+        <div><strong id="ranger-place">Bunchborough</strong><span id="ranger-record">0/4 SEALS</span></div>
+        <p id="ranger-goal">Earn your place in the Grand Vintage.</p>
+      </div>
+      <p id="ranger-toast" class="ranger-toast" role="status" hidden></p>
+      <button id="ranger-context" class="ranger-context" type="button" hidden>Talk</button>
+      <button id="ranger-weapon" class="ranger-weapon" type="button" aria-label="Open ranger equipment" hidden>Seedshot</button>
+
+      <section id="ranger-panel" class="ranger-panel" role="dialog" aria-modal="true" aria-labelledby="ranger-panel-title" hidden>
+        <div class="ranger-panel-sheet">
+          <button id="ranger-panel-close" type="button" class="ranger-panel-close" aria-label="Back to the world">×</button>
+          <p class="ranger-eyebrow">THE GRAND VINTAGE</p>
+          <h1 id="ranger-panel-title">Your ranger story</h1>
+          <p id="ranger-panel-copy"></p>
+          <div id="ranger-panel-content"></div>
         </div>
       </section>
 
@@ -213,6 +229,7 @@
           <button id="resume-button" class="round-overlay-button" type="button" aria-label="Resume battle">
             <svg viewBox="0 0 100 100" aria-hidden="true"><path d="M38 25 76 50 38 75Z" /></svg>
           </button>
+          <button id="pause-town-button" class="town-button" type="button"><strong>BACK TO BUNCHBOROUGH</strong><span>Your ranger work stays saved</span></button>
           <button id="gameplay-help-toggle" class="help-toggle" type="button" role="switch" aria-checked="true" aria-label="Gameplay help on">
             <span class="help-orb" aria-hidden="true">?</span>
             <strong>HELP</strong>
@@ -320,6 +337,7 @@
           <strong id="final-score">0</strong>
         </div>
         <p id="ending-mark" class="ending-mark">THE VINEYARD BREATHES AGAIN</p>
+        <button id="town-button" class="town-button" type="button" hidden><strong>ENTER BUNCHBOROUGH</strong><span>Your ranger story continues</span></button>
         <button id="restart-button" class="round-overlay-button restart-button" type="button" aria-label="Battle again">
           <svg viewBox="0 0 100 100" aria-hidden="true">
             <path d="M79 30V11L68 22a35 35 0 1 0 8 48l-12-8a21 21 0 1 1-5-29L45 47h34Z" />
