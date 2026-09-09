@@ -25,7 +25,9 @@ Grape Gripe is a graphics-first mobile action journey through a corrupted, biolu
 
 ## Build notes
 
-[The Sol handoff](docs/SOL-HANDOFF.md) records the campaign brief, [the audit](docs/AUDIT.md) records the engineering foundation, and [the art handoff](docs/ART-HANDOFF.md) identifies the remaining authored-animation gap. The campaign, checkpoint, route-choice, side-view, distinct objective, finale, restoration, guide, and rematch systems described by that brief are now implemented.
+Start with [the current universe scope](docs/UNIVERSE-SCOPE.md) and [Sol's next build](docs/SOL-NEXT.md). Save schema 2 separates the local character, remembered discoveries/endings and the active adventure. New adventures preserve the character and learned tactics; the existing ending is recorded once. This is preparation for StarMuff, not an online connection: accounts, cross-device memory, foreign avatars and friend presence still require shared-server work.
+
+[The Sol handoff](docs/SOL-HANDOFF.md) records the current build state, [the repair report](docs/AUDIT-REPAIRS.md) covers the September 9 fixes, and [the art handoff](docs/ART-HANDOFF.md) identifies the remaining authored-animation gap. The campaign, checkpoint, route-choice, side-view, distinct objective, finale, restoration, guide, and rematch systems are implemented.
 
 ## Run locally
 
@@ -47,6 +49,8 @@ The game has no production dependencies or build step. Cloudflare can serve `pub
 
 ## Release boundary
 
-This is the complete static first-release campaign. It intentionally does not include an account system, multiplayer, an AI backend, monetisation gates, procedural filler, or mandatory story reading.
+The playable static campaign has four regions and one optional side passage. The earlier 10–12-room graph and 40–60-minute pacing were proposals, not delivered or measured claims. Accounts, multiplayer and shared-universe travel remain future work.
+
+Chapter upgrades survive interrupted travel and are claimed once. Registered checkpoint anchors recover onto reachable floor. Storage denial, failed writes and incompatible saves leave temporary play available with a persistent warning; a blocked write keeps an in-session retry checkpoint. Saves remain local to this browser and origin.
 
 The test suite validates geometry, navigation, animation timing, objectives, checkpoint recovery, contextual interactions, the side-view return path, and finale rules. It does not replace physical-phone performance measurements or human playtesting for feel and fun. The current generated eight-direction gait alternates frames, but the side-facing source art still needs a genuinely authored foot-phase pass; attack, dash, hurt, and ultimate movement are staged from the existing atlas rather than a reusable character rig. Add `?terrain=1` to inspect floor outlines and foot discs during a future visual test.

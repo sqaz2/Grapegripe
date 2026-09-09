@@ -1,11 +1,14 @@
 import { Terrain } from './engine/terrain.mjs';
+import { checkpointPosition } from './engine/checkpoints.mjs';
 import { terrainDefinitions } from './engine/terrain-data.mjs';
 import { createAnimator, advanceAnimator, sampleAnimation } from './engine/animation.mjs';
 import { heroAtlas } from './engine/hero-atlas.mjs';
 import { campaignChapters } from './content/campaign.mjs';
 import { missionDefinitions, sideviewDefinition } from './content/missions.mjs';
 import { applyCampaignEvent, chapterComplete, createCampaignState, objectiveAvailable } from './engine/campaign.mjs';
-import { loadSave, newSave, removeSave, storeSave } from './engine/save.mjs';
+import { inspectSave, loadSave, newSave, restartAdventure, storeSave, MAX_ENERGY, upgradeChapters } from './engine/save.mjs';
+import { rememberCampaign, rememberEnding } from './engine/journey-memory.mjs';
+import { eligibleEnding } from './content/endings.mjs';
 
 const $ = (id) => document.getElementById(id);
 
@@ -28,6 +31,8 @@ const pauseScreen = $('pause-screen');
 const resumeButton = $('resume-button');
 const gameplayHelpToggle = $('gameplay-help-toggle');
 const gameplayHelpState = $('gameplay-help-state');
+const whiningToggle = $('whining-toggle');
+const whiningState = $('whining-state');
 const contextHelp = $('context-help');
 const contextHelpCard = $('context-help-card');
 const contextHelpTitle = $('context-help-title');
@@ -51,10 +56,13 @@ const verdictScreen = $('verdict-screen');
 const endScreen = $('end-screen');
 const finalScore = $('final-score');
 const restartButton = $('restart-button');
+const agedButton = $('aged-button');
 const liveStatus = $('live-status');
 const objectiveStrip = $('objective-strip');
 const sideRouteNode = $('side-route-node');
+const sideMasteryNode = $('side-mastery-node');
 const mapStamps = $('map-stamps');
+const saveStatus = $('save-status');
 
 const imagePaths = {
   root: './assets/root-cellar.webp',
@@ -158,6 +166,10 @@ const state = {
   time: 0,
   score: 0,
   energy: 0,
+  maxEnergy: MAX_ENERGY,
+  pendingUpgrade: null,
+  upgradesClaimed: [],
+  sessionSave: null,
   regionIndex: 0,
   pendingRegion: 0,
   encounterIndex: 0,
@@ -184,10 +196,14 @@ const state = {
   pickups: [],
   particles: [],
   shockwaves: [],
+  sourSpots: [],
   spawnQueue: [],
   ambience: [],
   ultimate: null,
   campaign: createCampaignState(),
+  memory: null,
+  saveRevision: 0,
+  adventureId: null,
   checkpoint: { chapterId: 'root', anchorId: 'root-start' },
   mission: null,
   carried: null,
@@ -196,10 +212,12 @@ const state = {
   guardAvailable: false,
   clueReaction: null,
   helpEnabled: readSaved('grape-gripe-gameplay-help') !== 'off',
+  whiningEnabled: readSaved('grape-gripe-whining') !== 'off',
   helpReturnMode: 'playing',
   activeHelp: null,
   bossFinale: null,
   endingSeen: false,
+  agedPoorly: false,
   persistenceAvailable: true,
 };
 
@@ -274,15 +292,50 @@ function objectiveComplete(id) {
   return state.campaign.completed.includes(id);
 }
 
-function saveProgress(anchorId = `${regions[state.regionIndex].key}-start`, chapterId = regions[state.regionIndex].key) {
+function readCheckpoint() {
+  try { return loadSave(localStorage); } catch { return null; }
+}
+
+function snapshotAdventure(anchorId = state.checkpoint.anchorId, chapterId = state.checkpoint.chapterId) {
   const envelope = newSave();
+  envelope.revision = state.saveRevision;
+  envelope.memory = rememberCampaign(state.memory || envelope.memory, state.campaign);
   envelope.campaign = state.campaign;
   envelope.checkpoint = { chapterId, anchorId };
-  envelope.run = { score: state.score, energy: state.energy, upgrades: { ...state.upgrades }, endingSeen: state.endingSeen };
+  envelope.run = { id: state.adventureId || envelope.run.id, score: state.score, energy: state.energy, upgrades: { ...state.upgrades }, endingSeen: state.endingSeen, agedPoorly: state.agedPoorly, pendingUpgrade: state.pendingUpgrade, upgradesClaimed: [...state.upgradesClaimed] };
   envelope.preferences.sound = state.sound;
-  const stored = storeSave(envelope);
-  state.persistenceAvailable = Boolean(stored);
-  if (stored) state.checkpoint = stored.checkpoint;
+  envelope.preferences.whining = state.whiningEnabled;
+  return envelope;
+}
+
+function showSaveStatus(status) {
+  const messages = {
+    conflict: 'Progress changed in another tab. Reload to use the latest save.',
+    unavailable: 'Progress cannot be saved. Keep this tab open.',
+    incompatible: 'Your save needs a newer game version. Play here without saving, or reload the latest version.',
+  };
+  saveStatus.textContent = messages[status] || '';
+  saveStatus.hidden = !messages[status];
+  state.persistenceAvailable = !messages[status];
+}
+
+function saveProgress(anchorId = `${regions[state.regionIndex].key}-start`, chapterId = regions[state.regionIndex].key) {
+  const envelope = snapshotAdventure(anchorId, chapterId);
+  state.memory = envelope.memory;
+  state.adventureId = envelope.run.id;
+  let stored = false;
+  try { stored = storeSave(envelope, localStorage); } catch { /* Keep session progress usable. */ }
+  state.sessionSave = stored || envelope;
+  state.checkpoint = envelope.checkpoint;
+  if (stored) state.saveRevision = stored.revision;
+  let status = 'ok';
+  if (!stored) {
+    let saved;
+    try { saved = inspectSave(localStorage); } catch { saved = { status: 'unavailable' }; }
+    status = saved.status === 'incompatible' ? 'incompatible' : saved.save?.revision > envelope.revision ? 'conflict' : 'unavailable';
+  }
+  showSaveStatus(status);
+  syncJourneyMemory();
   return Boolean(stored);
 }
 
@@ -295,7 +348,7 @@ function completeObjective(objectiveId, options = {}) {
   if (!result.changed) return false;
   state.campaign = result.state;
   state.score += options.score ?? 55;
-  state.energy += options.energy ?? 4;
+  state.energy = Math.min(MAX_ENERGY, state.energy + (options.energy ?? 4));
   state.lastStraw = clamp(state.lastStraw + (options.straw ?? 14), 0, state.maxStraw);
   state.shockwaves.push({ x: options.x ?? state.hero.x, y: options.y ?? state.hero.y, radius: 10, max: 145, life: 0.75, color: '#d9ff45' });
   burstParticles(options.x ?? state.hero.x, options.y ?? state.hero.y, '#d9ff45', 28, 185);
@@ -308,15 +361,24 @@ function completeObjective(objectiveId, options = {}) {
 }
 
 function applySavedRun(save) {
+  state.memory = save.memory;
+  state.saveRevision = save.revision;
+  state.adventureId = save.run.id;
   state.campaign = createCampaignState(save?.campaign);
   state.checkpoint = save?.checkpoint || { chapterId: 'root', anchorId: 'root-start' };
   state.score = save?.run?.score || 0;
   state.energy = save?.run?.energy || 0;
   state.upgrades = { power: 0, speed: 0, shield: 0, ...(save?.run?.upgrades || {}) };
   state.endingSeen = Boolean(save?.run?.endingSeen);
+  state.agedPoorly = Boolean(save?.run?.agedPoorly);
+  state.pendingUpgrade = save?.run?.pendingUpgrade || null;
+  state.upgradesClaimed = [...(save?.run?.upgradesClaimed || [])];
+  state.sessionSave = save;
   state.sound = save?.preferences?.sound !== false;
+  state.whiningEnabled = save?.preferences?.whining !== false;
   soundButton.setAttribute('aria-pressed', String(state.sound));
   soundButton.setAttribute('aria-label', state.sound ? 'Turn sound off' : 'Turn sound on');
+  if (masterGain) masterGain.gain.setTargetAtTime(state.sound ? 0.17 : 0, audioContext.currentTime, 0.035);
 }
 
 function applyUpgradeStats() {
@@ -412,6 +474,13 @@ function resetHero() {
 
 function resetGame(options = {}) {
   const continuing = Boolean(options.continueSave);
+  // A new adventure resets its puzzles and combat, never the character's history.
+  const previous = state.memory ? snapshotAdventure() : readCheckpoint();
+  const adventure = options.continueSave || restartAdventure(previous, options);
+  if (!previous && !continuing) {
+    adventure.preferences.sound = state.sound;
+    adventure.preferences.whining = state.whiningEnabled;
+  }
   state.time = 0;
   state.score = 0;
   state.energy = 0;
@@ -422,16 +491,17 @@ function resetGame(options = {}) {
   state.campaign = createCampaignState();
   state.checkpoint = { chapterId: 'root', anchorId: 'root-start' };
   state.endingSeen = false;
+  state.agedPoorly = Boolean(options.agedPoorly);
   state.tutorial = readSaved('grape-gripe-journey-tutorial') === 'done' ? 2 : 0;
   state.clearTimer = 0;
   accumulator = 0;
   clearInput();
   resetHero();
-  if (continuing) applySavedRun(options.continueSave);
-  else removeSave();
+  applySavedRun(adventure);
   applyUpgradeStats();
   const chapterIndex = Math.max(0, regions.findIndex((region) => region.key === state.checkpoint.chapterId));
   enterRegion(chapterIndex, true, state.checkpoint.anchorId);
+  if (continuing && state.pendingUpgrade) showUpgrade();
   if (!continuing) saveProgress('root-start');
 }
 
@@ -450,6 +520,13 @@ function syncGameplayHelp() {
   gameplayHelpToggle.setAttribute('aria-checked', String(enabled));
   gameplayHelpToggle.setAttribute('aria-label', `Gameplay help ${enabled ? 'on' : 'off'}`);
   gameplayHelpState.textContent = enabled ? 'ON' : 'OFF';
+}
+
+function syncWhining() {
+  const enabled = Boolean(state.whiningEnabled);
+  whiningToggle.setAttribute('aria-checked', String(enabled));
+  whiningToggle.setAttribute('aria-label', `Adaptive Whining hints ${enabled ? 'on' : 'off'}`);
+  whiningState.textContent = enabled ? 'ON' : 'OFF';
 }
 
 function configureSideviewControls(active) {
@@ -496,6 +573,20 @@ function toggleGameplayHelp() {
   syncGameplayHelp();
 }
 
+function toggleWhining() {
+  state.whiningEnabled = !state.whiningEnabled;
+  writeSaved('grape-gripe-whining', state.whiningEnabled ? 'on' : 'off');
+  syncWhining();
+  saveProgress(state.checkpoint.anchorId, state.checkpoint.chapterId);
+}
+
+function syncJourneyMemory() {
+  const count = state.memory?.endings.length || 0;
+  $('journey-ending-count').textContent = String(count);
+  $('journey-ending-count').setAttribute('aria-label', `${count} endings discovered`);
+  $('journey-save-status').textContent = state.persistenceAvailable ? 'Saved on this device' : 'Progress is not saving. Keep this tab open.';
+}
+
 function hideOverlays() {
   startScreen.hidden = true;
   pauseScreen.hidden = true;
@@ -524,6 +615,7 @@ function enterRegion(index, fresh = false, anchorId = null) {
   state.pickups = [];
   state.particles = [];
   state.shockwaves = [];
+  state.sourSpots = [];
   state.spawnQueue = [];
   state.ultimate = null;
   state.carried = null;
@@ -548,13 +640,10 @@ function enterRegion(index, fresh = false, anchorId = null) {
     if (rematch) Object.assign(rematch, { objectiveId: null, triggered: false, cleared: false, rematch: true });
   }
   if (regions[index].key === 'press' && objectiveComplete('press-cork-found') && !objectiveComplete('press-cork-delivered')) state.carried = 'press-cork';
-  let spawn = asPoint(mission.anchor || data.spawn);
-  if (anchorId?.includes('lift') || anchorId?.includes('bridge') || anchorId?.includes('platform') || anchorId?.includes('bloom')) spawn = state.terrain.project({ x: data.exit[0], y: data.exit[1] + 85 }, state.hero.footRadius) || spawn;
-  if (anchorId === 'vineway-side-passage') {
-    const passage = mission.props.find((prop) => prop.id === 'vineway-passage');
-    spawn = state.terrain.project({ x: passage.position[0], y: passage.position[1] + 72 }, state.hero.footRadius) || spawn;
-  }
+  const spawn = checkpointPosition(regions[index].key, anchorId, state.terrain, state.hero.footRadius) || asPoint(mission.anchor || data.spawn);
   Object.assign(state.hero, spawn, {
+    characterId: state.memory?.character.id,
+    avatarId: state.memory?.character.avatarId,
     vx: 0, vy: 0, direction: 6, facingX: 0, facingY: -1,
     dashTime: 0, attackAnim: 0, trail: [], animator: createAnimator(),
   });
@@ -580,6 +669,8 @@ function beginTravel() {
   }
   state.mode = 'travel';
   state.pendingRegion = state.regionIndex + 1;
+  const chapterId = regions[state.regionIndex].key;
+  if (!state.upgradesClaimed.includes(chapterId)) state.pendingUpgrade = chapterId;
   state.checkpoint = { chapterId: regions[state.pendingRegion].key, anchorId: `${regions[state.pendingRegion].key}-start` };
   saveProgress(state.checkpoint.anchorId, state.checkpoint.chapterId);
   state.travelTimer = prefersReducedMotion ? 0.8 : 2.65;
@@ -592,9 +683,11 @@ function completeRegion() {
   const chapterId = regions[state.regionIndex].key;
   if (state.regionClear || !chapterComplete(state.campaign, chapterId)) return;
   state.regionClear = true;
-  state.score += 75 + state.regionIndex * 25;
-  state.energy += 5;
-  state.lastStraw = clamp(state.lastStraw + 22, 0, state.maxStraw);
+  if (!state.upgradesClaimed.includes(chapterId) && state.pendingUpgrade !== chapterId) {
+    state.score += 75 + state.regionIndex * 25;
+    state.energy = Math.min(MAX_ENERGY, state.energy + 5);
+    state.lastStraw = clamp(state.lastStraw + 22, 0, state.maxStraw);
+  }
   sound('clear');
   burstParticles(state.hero.x, state.hero.y, regions[state.regionIndex].tint, 38, 210);
   state.shockwaves.push({ x: state.hero.x, y: state.hero.y, radius: 18, max: 170, life: 0.8, color: regions[state.regionIndex].tint });
@@ -727,6 +820,7 @@ function startSideview() {
     receiptCount: 0,
     flies: sideviewDefinition.flies.map((fly, id) => ({ ...fly, baseX: fly.x, id, defeated: false })),
     flyCount: 0, hitCooldown: 0,
+    assistFailures: 0, assistDemo: 0, assistVineIndex: null,
     masteryAwarded: state.campaign.mastered.includes('vineway-receipt-run'), masteryFlash: 0,
   };
   state.contextTarget = null;
@@ -871,6 +965,8 @@ function attachSideGrapple(index) {
   side.grounded = false;
   side.standingPlatformId = null;
   side.grappleGrace = .18;
+  side.assistFailures = 0;
+  side.assistDemo = 0;
   burstParticles(vine.x, vine.y, '#d9ff45', 14, 135);
   sound('secret'); vibrate(12);
   return true;
@@ -1146,6 +1242,9 @@ function killEnemy(enemy) {
   }
   state.shockwaves.push({ x: enemy.x, y: enemy.y, radius: 10, max: enemy.radius * 2.8, life: 0.52, color: enemy.type === 'boss' ? '#ffae45' : '#a45add' });
   burstParticles(enemy.x, enemy.y, enemy.type === 'boss' ? '#ffae45' : '#8e42d0', enemy.type === 'boss' ? 58 : 20, enemy.type === 'boss' ? 275 : 155);
+  if (state.agedPoorly && enemy.type !== 'boss') {
+    state.sourSpots.push({ x: enemy.x, y: enemy.y, age: 0, life: 5.8, radius: 18, hitCooldown: 0 });
+  }
   if (enemy.type === 'boss') state.shake = prefersReducedMotion ? 6 : 22;
   if (!state.campaign.mastered.includes(enemy.type)) {
     state.campaign.mastered.push(enemy.type);
@@ -1359,7 +1458,7 @@ function updatePickups(dt) {
     if (origin) Object.assign(pickup, state.terrain.move(origin, pickup.vx * dt, pickup.vy * dt, 4));
     if (d < 28) {
       pickup.life = 0;
-      state.energy += 1;
+      state.energy = Math.min(MAX_ENERGY, state.energy + 1);
       state.score += 4;
       state.lastStraw = clamp(state.lastStraw + 2, 0, state.maxStraw);
       sound('collect');
@@ -1369,7 +1468,7 @@ function updatePickups(dt) {
 
   if (state.secret && !state.secret.collected && distance(state.secret, state.hero) < 42) {
     state.secret.collected = true;
-    state.energy += 10;
+    state.energy = Math.min(MAX_ENERGY, state.energy + 10);
     state.score += 120;
     state.lastStraw = clamp(state.lastStraw + 28, 0, state.maxStraw);
     sound('secret');
@@ -1418,6 +1517,22 @@ function updateEffects(dt) {
   state.shockwaves = state.shockwaves.filter((wave) => wave.life > 0);
 }
 
+function updateSourSpots(dt) {
+  if (!state.agedPoorly) return;
+  for (const spot of state.sourSpots) {
+    spot.age += dt;
+    spot.life -= dt;
+    spot.hitCooldown = Math.max(0, spot.hitCooldown - dt);
+    spot.radius = Math.min(68, spot.radius + dt * 24);
+    if (spot.life > .25 && spot.hitCooldown <= 0 && distance(spot, state.hero) < spot.radius + 13) {
+      spot.hitCooldown = 1;
+      damageHero(8);
+      if (state.mode !== 'playing') return;
+    }
+  }
+  state.sourSpots = state.sourSpots.filter((spot) => spot.life > 0);
+}
+
 function updateEncounter(dt) {
   if (!state.gate) {
     const encounter = state.mission?.encounters.find((item) => {
@@ -1443,7 +1558,7 @@ function updateEncounter(dt) {
       }
       state.encounterIndex++;
       state.lastStraw = clamp(state.lastStraw + 10, 0, state.maxStraw);
-      state.energy += 3; state.score += 30;
+      state.energy = Math.min(MAX_ENERGY, state.energy + 3); state.score += 30;
       sound('clear');
       for (const segment of state.gate.segments) state.shockwaves.push({ x: (segment.a.x + segment.b.x) / 2, y: state.gate.y, radius: 8, max: 110, life: 0.75, color: '#d9ff45' });
       state.gate = null;
@@ -1501,6 +1616,7 @@ function updateSideview(dt) {
   side.releaseFlash = Math.max(0, side.releaseFlash - dt);
   side.hitCooldown = Math.max(0, side.hitCooldown - dt);
   side.masteryFlash = Math.max(0, side.masteryFlash - dt);
+  side.assistDemo = Math.max(0, side.assistDemo - dt);
   if (side.finishTimer > 0) {
     side.finishTimer -= dt;
     updateEffects(dt);
@@ -1599,6 +1715,7 @@ function updateSideview(dt) {
   side.y = nextY;
   for (const checkpoint of sideviewDefinition.checkpoints) if (side.x >= checkpoint) side.checkpointX = checkpoint;
   if (side.y > 760) {
+    side.assistFailures += 1;
     side.x = side.checkpointX;
     const platform = sideGroundAt(side.x);
     side.y = platform?.y || sideviewDefinition.floor;
@@ -1608,12 +1725,17 @@ function updateSideview(dt) {
     releaseSideGrapple(false);
     state.flash = 0.22;
     vibrate(20);
+    if (state.whiningEnabled && side.assistFailures >= 2) triggerWhiningDemo();
   }
   for (const receipt of side.receipts) {
-    if (receipt.collected || Math.hypot(side.x - receipt.x, side.y - 45 - receipt.y) >= 43) continue;
+    // Receipts are tall paper objects: use a body-sized overlap instead of a tiny
+    // circular centre check so standing directly beneath one always collects it.
+    const receiptDx = Math.abs(side.x - receipt.x);
+    const receiptDy = Math.abs(side.y - 45 - receipt.y);
+    if (receipt.collected || receiptDx >= 62 || receiptDy >= 76) continue;
     receipt.collected = true;
     side.receiptCount += 1;
-    state.energy = Math.min(state.maxEnergy, state.energy + 3);
+    state.energy = Math.min(MAX_ENERGY, state.energy + 3);
     state.score += 35;
     state.lastStraw = Math.min(state.maxStraw, state.lastStraw + 4);
     burstParticles(receipt.x, receipt.y, '#ffcd54', 24, 165);
@@ -1636,6 +1758,7 @@ function updateSideview(dt) {
       burstParticles(fly.x, fly.y, '#d9ff45', 30, 210);
       sound('heavy'); vibrate([10, 18, 8]);
     } else {
+      side.assistFailures += 1;
       releaseSideGrapple(false);
       side.vx = (Math.sign(side.x - fly.x) || -side.direction) * 265;
       side.vy = -255;
@@ -1645,13 +1768,14 @@ function updateSideview(dt) {
       state.shockwaves.push({ x: fly.x, y: fly.y, radius: 6, max: 48, life: .32, color: '#ff4fa3' });
       burstParticles(side.x, side.y - 42, '#ff4fa3', 13, 130);
       sound('hurt'); vibrate(20);
+      if (state.whiningEnabled && side.assistFailures >= 2) triggerWhiningDemo();
     }
   }
   if (!side.masteryAwarded && side.receiptCount === side.receipts.length && side.flyCount === side.flies.length) {
     side.masteryAwarded = true;
     side.masteryFlash = 1.8;
     state.score += 300;
-    state.energy = Math.min(state.maxEnergy, state.energy + 15);
+    state.energy = Math.min(MAX_ENERGY, state.energy + 15);
     state.lastStraw = state.maxStraw;
     state.campaign.mastered.push('vineway-receipt-run');
     saveProgress('vineway-side-passage', 'vineway');
@@ -1669,6 +1793,22 @@ function updateSideview(dt) {
   if (side.x >= sideviewDefinition.exitX) finishSideview();
   updateEffects(dt);
   updateUI();
+}
+
+function triggerWhiningDemo() {
+  const side = state.sideview;
+  if (!side) return false;
+  let bestIndex = -1;
+  let bestDistance = Infinity;
+  sideviewDefinition.vines.forEach((vine, index) => {
+    const d = Math.hypot(side.x - vine.x, side.y - vine.y);
+    if (vine.x >= side.x - 120 && vine.y < side.y - 30 && d < bestDistance) { bestDistance = d; bestIndex = index; }
+  });
+  if (bestIndex < 0) return false;
+  side.assistVineIndex = bestIndex;
+  side.assistDemo = 4.4;
+  side.assistFailures = 0;
+  return true;
 }
 
 function update(dt) {
@@ -1705,6 +1845,8 @@ function update(dt) {
   updateBolts(dt);
   if (state.mode !== 'playing') return;
   updatePickups(dt);
+  updateSourSpots(dt);
+  if (state.mode !== 'playing') return;
   updateEncounter(dt);
   updateUltimate(dt);
   if (state.bossFinale) state.bossFinale.time += dt;
@@ -1715,14 +1857,24 @@ function update(dt) {
 }
 
 function showUpgrade() {
+  if (!state.pendingUpgrade || Object.values(state.upgrades).every((level) => level >= 3)) {
+    if (state.pendingUpgrade) state.upgradesClaimed = [...new Set([...state.upgradesClaimed, ...upgradeChapters.slice(0, state.pendingRegion)])];
+    state.pendingUpgrade = null;
+    enterRegion(state.pendingRegion);
+    saveProgress(state.checkpoint.anchorId, state.checkpoint.chapterId);
+    return;
+  }
   state.mode = 'upgrade';
+  showGameControls(false);
   upgradeScreen.hidden = false;
   updateUpgradeDots();
   announce('Choose a power for the next region.');
 }
 
 function chooseUpgrade(type) {
-  if (state.mode !== 'upgrade') return;
+  if (state.mode !== 'upgrade' || !state.pendingUpgrade || !['power', 'speed', 'shield'].includes(type) || state.upgrades[type] >= 3) return;
+  state.upgradesClaimed.push(state.pendingUpgrade);
+  state.pendingUpgrade = upgradeChapters.slice(0, state.pendingRegion).find((id) => !state.upgradesClaimed.includes(id)) || null;
   state.upgrades[type] = clamp(state.upgrades[type] + 1, 0, 3);
   if (type === 'power') state.hero.damage += 0.95;
   if (type === 'speed') {
@@ -1737,10 +1889,13 @@ function chooseUpgrade(type) {
   upgradeScreen.hidden = true;
   state.checkpoint = { chapterId: regions[state.pendingRegion].key, anchorId: `${regions[state.pendingRegion].key}-start` };
   saveProgress(state.checkpoint.anchorId, state.checkpoint.chapterId);
-  enterRegion(state.pendingRegion);
+  if (state.pendingUpgrade) showUpgrade();
+  else enterRegion(state.pendingRegion);
 }
 
 function finishGame(won) {
+  const endingId = 'grapegripe:vineyard-restored';
+  if (won && !eligibleEnding(state.campaign, endingId)) return false;
   clearInput();
   state.clearTimer = 0;
   hideOverlays();
@@ -1751,13 +1906,17 @@ function finishGame(won) {
   finalScore.textContent = Math.round(state.score).toLocaleString();
   $('ending-mark').textContent = won ? 'THE VINEYARD BREATHES AGAIN' : 'THE VINEYARD NEEDS ANOTHER TRY';
   if (won) {
+    state.memory = rememberEnding(state.memory, state.campaign, state.adventureId, endingId);
     state.endingSeen = true;
+    state.upgradesClaimed = [...upgradeChapters];
+    state.pendingUpgrade = null;
     state.checkpoint = { chapterId: 'root', anchorId: 'root-restored' };
     saveProgress(state.checkpoint.anchorId, state.checkpoint.chapterId);
     sound('win');
     writeSaved('grape-gripe-best-score', String(Math.max(Number(readSaved('grape-gripe-best-score') || 0), state.score)));
     announce('The Sourwood is uncorked. Journey complete.');
   } else announce('The Gripevine got the last word.');
+  agedButton.hidden = !won;
 }
 
 function pauseGame() {
@@ -1767,6 +1926,8 @@ function pauseGame() {
   state.mode = 'paused';
   pauseScreen.hidden = false;
   syncGameplayHelp();
+  syncWhining();
+  syncJourneyMemory();
   showGameControls(false);
   pauseButton.hidden = false;
   soundButton.hidden = false;
@@ -1806,7 +1967,7 @@ function closeMap() {
 }
 
 function updateGuideUI() {
-  document.querySelectorAll('[data-guide]').forEach((card) => card.classList.toggle('unlocked', state.campaign.mastered.includes(card.dataset.guide)));
+  document.querySelectorAll('[data-guide]').forEach((card) => card.classList.toggle('unlocked', (state.memory?.mastered || state.campaign.mastered).includes(card.dataset.guide)));
 }
 
 function openGuide() {
@@ -1845,6 +2006,7 @@ function updateRouteUI() {
     node.disabled = !state.endingSeen || !previousUnlocked;
   });
   sideRouteNode.classList.toggle('discovered', objectiveComplete('vineway-passage'));
+  sideMasteryNode.classList.toggle('discovered', (state.memory?.mastered || state.campaign.mastered).includes('vineway-receipt-run'));
   [...mapStamps.children].forEach((stamp, index) => {
     const rewards = ['root-shortcut', 'vineway-shortcut', 'press-restored', 'world-restored'];
     stamp.classList.toggle('unlocked', state.campaign.worldFlags.includes(rewards[index]));
@@ -2148,6 +2310,26 @@ function drawPickups() {
     ctx.arc(-5, 5, 4, 0, Math.PI * 2);
     ctx.arc(5, 5, 4, 0, Math.PI * 2);
     ctx.fill();
+    ctx.restore();
+  }
+}
+
+function drawSourSpots() {
+  for (const spot of state.sourSpots) {
+    const fade = clamp(spot.life / .8, 0, 1);
+    const pulse = 1 + Math.sin(state.time * 7 + spot.x) * .08;
+    ctx.save();
+    ctx.translate(spot.x, spot.y + 9);
+    ctx.scale(1, .48);
+    ctx.globalAlpha = fade;
+    ctx.fillStyle = 'rgba(103, 22, 127, .68)';
+    ctx.strokeStyle = '#ff4fa3';
+    ctx.lineWidth = 4;
+    ctx.shadowBlur = 20;
+    ctx.shadowColor = '#ff4fa3';
+    ctx.beginPath();
+    ctx.arc(0, 0, spot.radius * pulse, 0, Math.PI * 2);
+    ctx.fill(); ctx.stroke();
     ctx.restore();
   }
 }
@@ -2579,6 +2761,24 @@ function drawTravelMap() {
   }
   ctx.stroke();
 
+  const grownSegments = clamp(state.pendingRegion + progress, 0, regions.length - 1);
+  ctx.strokeStyle = '#88bd2f';
+  ctx.lineWidth = 5;
+  ctx.shadowBlur = 18;
+  ctx.shadowColor = '#d9ff45';
+  ctx.beginPath();
+  for (let i = 0; i <= grownSegments; i += 1) {
+    const x = centerX + (i % 2 === 0 ? -42 : 42);
+    const y = top + i * gap;
+    if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  for (let i = 0; i <= Math.floor(grownSegments); i += 1) {
+    const x = centerX + (i % 2 === 0 ? -42 : 42), y = top + i * gap;
+    ctx.fillStyle = i === state.pendingRegion ? '#d9ff45' : '#92c842';
+    ctx.beginPath(); ctx.ellipse(x + (i % 2 ? 24 : -24), y - 13, 16, 8, i % 2 ? -.45 : .45, 0, Math.PI * 2); ctx.fill();
+  }
+
   for (let i = 0; i < regions.length; i += 1) {
     const x = centerX + (i % 2 === 0 ? -42 : 42);
     const y = top + i * gap;
@@ -2690,6 +2890,19 @@ function drawSideview() {
   const sideSpeed = Math.hypot(side.vx, side.vy);
   for (const fly of side.flies) drawSideFly(fly, sideSpeed);
   for (const receipt of side.receipts) drawSideReceipt(receipt);
+  if (side.assistDemo > 0 && side.assistVineIndex !== null) {
+    const vine = sideviewDefinition.vines[side.assistVineIndex];
+    const loop = ((4.4 - side.assistDemo) % 2.2) / 2.2;
+    const angle = lerp(-.82, 1.02, loop);
+    const length = Math.min(vine.length, 235);
+    const ghostX = vine.x + Math.sin(angle) * length;
+    const ghostY = vine.y + Math.cos(angle) * length;
+    ctx.save(); ctx.globalAlpha = .26 + Math.sin(loop * Math.PI) * .2;
+    ctx.setLineDash([10, 10]); ctx.strokeStyle = '#fff8dc'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.moveTo(vine.x, vine.y + 15); ctx.lineTo(ghostX, ghostY - 40); ctx.stroke();
+    ctx.restore();
+    drawHeroAt(ghostX, ghostY, Math.cos(angle) >= 0 ? 0 : 4, .34, true, null, -angle * .14);
+  }
   if (side.grapplePhase === 'swing' && side.grappleIndex !== null) {
     const vine = sideviewDefinition.vines[side.grappleIndex];
     ctx.save();
@@ -2824,6 +3037,7 @@ function draw() {
   drawExit();
   drawGate();
   drawSecret();
+  drawSourSpots();
   drawPickups();
   drawBolts();
   const actors = [...state.enemies.map((enemy) => ({ type: 'enemy', y: enemy.y, entity: enemy })), { type: 'hero', y: state.hero?.y || 0, entity: state.hero }]
@@ -2902,8 +3116,15 @@ function clearInput() {
 }
 
 joystickZone.addEventListener('pointerdown', (event) => {
-  if (!['playing', 'sideview'].includes(state.mode) || input.joystickId !== null) return;
+  if (!['playing', 'sideview'].includes(state.mode)) return;
   event.preventDefault();
+  // Mobile browsers can occasionally swallow a pointer-up while browser chrome
+  // changes. A fresh touch must always reclaim the stick instead of leaving it frozen.
+  if (input.joystickId !== null && input.joystickId !== event.pointerId) {
+    input.joystickId = null;
+    input.joyX = 0;
+    input.joyY = 0;
+  }
   input.joystickId = event.pointerId;
   input.joyOriginX = event.clientX;
   input.joyOriginY = event.clientY;
@@ -2922,6 +3143,8 @@ joystickZone.addEventListener('pointermove', (event) => {
 joystickZone.addEventListener('pointerup', releaseJoystick);
 joystickZone.addEventListener('pointercancel', releaseJoystick);
 joystickZone.addEventListener('lostpointercapture', releaseJoystick);
+window.addEventListener('blur', clearInput);
+document.addEventListener('visibilitychange', () => { if (document.hidden) clearInput(); });
 
 canvas.addEventListener('pointerdown', (event) => {
   if (state.mode === 'travel') { state.travelTimer = Math.min(state.travelTimer, 0.35); return; }
@@ -2957,7 +3180,7 @@ startButton.addEventListener('click', () => {
 });
 continueButton.addEventListener('click', () => {
   if (!assetsReady) return;
-  const checkpoint = loadSave();
+  const checkpoint = readCheckpoint();
   if (!checkpoint) { continueButton.hidden = true; return; }
   initializeSound();
   resetGame({ continueSave: checkpoint });
@@ -2966,12 +3189,21 @@ restartButton.addEventListener('click', () => {
   if (!assetsReady) return;
   initializeSound();
   hideOverlays();
-  const checkpoint = loadSave();
+  const checkpoint = state.sessionSave || readCheckpoint();
   resetGame(checkpoint ? { continueSave: checkpoint } : {});
+});
+agedButton.addEventListener('click', () => {
+  if (!assetsReady) return;
+  initializeSound();
+  hideOverlays();
+  resetGame({ agedPoorly: true });
+  state.regionIntro = 3.2;
+  announce('Aged Poorly rematch. Defeated enemies leave sour ground.');
 });
 pauseButton.addEventListener('click', () => state.mode === 'paused' ? resumeGame() : pauseGame());
 resumeButton.addEventListener('click', resumeGame);
 gameplayHelpToggle.addEventListener('click', toggleGameplayHelp);
+whiningToggle.addEventListener('click', toggleWhining);
 contextHelpContinue.addEventListener('click', dismissContextHelp);
 document.querySelectorAll('[data-verdict]').forEach((button) => button.addEventListener('click', () => chooseVerdict(button.dataset.verdict)));
 mapButton.addEventListener('click', openMap);
@@ -3006,7 +3238,7 @@ window.addEventListener('keydown', (event) => {
   if (event.repeat && ['m', 'escape', 'shift', 'e'].includes(key)) return;
   if (state.mode === 'start' && (key === ' ' || key === 'enter')) {
     initializeSound();
-    const checkpoint = loadSave();
+    const checkpoint = readCheckpoint();
     resetGame(checkpoint ? { continueSave: checkpoint } : {});
     return;
   }
@@ -3055,7 +3287,10 @@ async function boot() {
     loadingScreen.hidden = true;
     startScreen.hidden = false;
     startButton.disabled = false;
-    continueButton.hidden = !loadSave();
+    let saved;
+    try { saved = inspectSave(localStorage); } catch { saved = { save: null, status: 'unavailable' }; }
+    continueButton.hidden = !saved.save;
+    showSaveStatus(saved.status);
     state.mode = 'start';
   } catch {
     // Failed art must never expose a playable but broken world.

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { loadGame } from './game-harness.mjs';
 import { terrainDefinitions } from '../public/engine/terrain-data.mjs';
 import { campaignChapters } from '../public/content/campaign.mjs';
+import { loadSave, SAVE_KEY } from '../public/engine/save.mjs';
 
 test('boot, render calls, and game controls tolerate unavailable storage', async () => {
   const g = await loadGame({ debug: true });
@@ -10,8 +11,8 @@ test('boot, render calls, and game controls tolerate unavailable storage', async
   g.resetGame(); g.draw();
   assert.equal(g.state.mode, 'playing');
   assert.ok(g.drawnImages.some(({ src }) => src.endsWith('hero-walk.webp')));
-  g.finishGame(true);
-  assert.equal(g.state.mode, 'won');
+  g.finishGame(false);
+  assert.equal(g.state.mode, 'lost');
 });
 
 test('idle rendering continuously animates the cape without changing the planted pose', async () => {
@@ -242,6 +243,27 @@ test('first-time help explains carried objectives and can be disabled from pause
   assert.equal(g.element('gameplay-help-toggle').getAttribute('aria-checked'), 'false');
 });
 
+test('Whining is optional and demonstrates a nearby swing after repeated misses', async () => {
+  const storage = new Map([['grape-gripe-help-sideview-controls', 'seen']]);
+  const g = await loadGame({ storage }); g.resetGame(); g.enterRegion(1); g.startSideview();
+  g.state.sideview.assistFailures = 2;
+  assert.equal(g.triggerWhiningDemo(), true);
+  assert.ok(g.state.sideview.assistDemo > 0);
+  assert.notEqual(g.state.sideview.assistVineIndex, null);
+  g.toggleWhining();
+  assert.equal(g.state.whiningEnabled, false);
+  assert.equal(storage.get('grape-gripe-whining'), 'off');
+});
+
+test('Aged Poorly enemies leave one readable temporary sour-ground hazard', async () => {
+  const g = await loadGame({ storage: new Map() }); g.resetGame({ agedPoorly: true });
+  g.spawnEnemy('sourling', { x: g.state.hero.x + 80, y: g.state.hero.y });
+  const enemy = g.state.enemies.at(-1);
+  g.hitEnemy(enemy, 999);
+  assert.equal(g.state.sourSpots.length, 1);
+  assert.equal(g.state.sourSpots[0].life, 5.8);
+});
+
 test('side passage supports manual jumping, air steering and vine grappling', async () => {
   const storage = new Map([['grape-gripe-help-sideview-controls', 'seen']]);
   const g = await loadGame({ storage }); g.resetGame(); g.enterRegion(1); g.startSideview();
@@ -279,6 +301,25 @@ test('side passage supports manual jumping, air steering and vine grappling', as
   assert.equal(g.state.sideview.grapplePhase, 'none');
   assert.ok(Math.sign(g.state.sideview.vx) === Math.sign(releaseVx), 'release should preserve horizontal travel direction');
   assert.ok(Math.abs(g.state.sideview.vy - releaseVy) < 30, 'release should preserve vertical momentum');
+});
+
+test('standing beneath a receipt collects it and a fresh touch recovers a stale phone joystick', async () => {
+  const storage = new Map([['grape-gripe-help-sideview-controls', 'seen']]);
+  const g = await loadGame({ storage }); g.resetGame(); g.enterRegion(1); g.startSideview();
+  const receipt = g.state.sideview.receipts[0];
+  Object.assign(g.state.sideview, {
+    x: receipt.x, y: 445, vx: 0, vy: 0, grounded: true, standingPlatformId: 'ledge-1',
+  });
+  g.update(1 / 60);
+  assert.equal(receipt.collected, true, 'the visible paper overlaps the full hero body');
+  assert.equal(g.state.sideview.receiptCount, 1);
+  assert.equal(Number.isFinite(g.state.energy), true);
+
+  g.input.joystickId = 77;
+  g.input.joyX = 1;
+  const pointerdown = g.element('joystick-zone').listeners.pointerdown[0];
+  pointerdown({ pointerId: 88, clientX: 120, clientY: 700, preventDefault() {} });
+  assert.equal(g.input.joystickId, 88, 'a new touch reclaims a stick whose pointer-up was lost');
 });
 
 test('side passage pendulum can carry the hero over an anchor and receipts reward high routes', async () => {
@@ -336,6 +377,51 @@ test('Vineway stunt route rewards fast moth impacts, rejects slow ones and recor
   g.update(1/60);
   assert.equal(side.masteryAwarded, true);
   assert.ok(g.state.campaign.mastered.includes('vineway-receipt-run'));
+  assert.ok(Number.isFinite(g.state.energy), 'mastery energy cannot break the audio or HUD');
+});
+
+test('a completed adventure, new run, and reload retain one character and one earned ending', async () => {
+  const storage = new Map();
+  const g = await loadGame({ storage }); g.resetGame();
+  const character = g.state.memory.character.id;
+  assert.equal(g.finishGame(true), false, 'a fresh game is not a completed ending');
+  assert.equal(g.state.mode, 'playing');
+  for (const [index, chapter] of campaignChapters.entries()) {
+    g.enterRegion(index);
+    for (const objective of chapter.objectives) g.completeObjective(objective.id);
+  }
+  g.state.campaign.mastered.push('moth');
+  g.finishGame(true); g.finishGame(true);
+  assert.equal(g.state.memory.endings.length, 1);
+  const previousRun = g.state.adventureId;
+  g.resetGame({ agedPoorly: true });
+  assert.equal(g.state.memory.character.id, character);
+  assert.equal(g.state.hero.characterId, character);
+  assert.equal(g.state.memory.endings.length, 1);
+  assert.ok(g.state.memory.mastered.includes('moth'));
+  assert.notEqual(g.state.adventureId, previousRun);
+  assert.equal(g.state.campaign.completed.length, 0);
+  assert.equal(g.state.endingSeen, false);
+  const saved = loadSave({ getItem: (key) => storage.get(key) ?? null });
+  const reloaded = await loadGame({ storage });
+  reloaded.resetGame({ continueSave: saved });
+  assert.equal(reloaded.state.memory.character.id, character);
+  assert.equal(reloaded.state.adventureId, g.state.adventureId);
+  assert.equal(reloaded.state.memory.endings.length, 1);
+  reloaded.enterRegion(1); reloaded.state.helpEnabled = false; reloaded.startSideview();
+  reloaded.finishSideview();
+  for (let i = 0; i < 50; i++) reloaded.update(1 / 60);
+  assert.equal(reloaded.state.hero.characterId, character);
+});
+
+test('unsupported future save survives starting a temporary adventure', async () => {
+  const future = JSON.stringify({ schemaVersion: 999 });
+  const storage = new Map([[SAVE_KEY, future]]);
+  const g = await loadGame({ storage }); g.resetGame();
+  assert.equal(g.state.mode, 'playing');
+  assert.equal(g.state.persistenceAvailable, false);
+  assert.equal(storage.get(SAVE_KEY), future);
+  assert.match(g.element('journey-save-status').textContent, /not saving/);
 });
 
 test('the Gripe Maw survives ordinary damage and the charged finale completes it', async () => {

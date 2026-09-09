@@ -2,13 +2,17 @@
 import vm from 'node:vm';
 import { readFileSync } from 'node:fs';
 import { Terrain } from '../public/engine/terrain.mjs';
+import { checkpointPosition } from '../public/engine/checkpoints.mjs';
 import { terrainDefinitions } from '../public/engine/terrain-data.mjs';
 import { createAnimator, advanceAnimator, sampleAnimation } from '../public/engine/animation.mjs';
 import { heroAtlas } from '../public/engine/hero-atlas.mjs';
 import { campaignChapters, chapterById } from '../public/content/campaign.mjs';
 import { missionDefinitions, sideviewDefinition } from '../public/content/missions.mjs';
 import { applyCampaignEvent, chapterComplete, createCampaignState, nextObjectives, objectiveAvailable } from '../public/engine/campaign.mjs';
-import { loadSave, newSave, removeSave, storeSave } from '../public/engine/save.mjs';
+import { inspectSave, loadSave, newSave, restartAdventure, removeSave, storeSave, MAX_ENERGY, upgradeChapters } from '../public/engine/save.mjs';
+
+import { rememberCampaign, rememberEnding } from '../public/engine/journey-memory.mjs';
+import { eligibleEnding } from '../public/content/endings.mjs';
 
 export async function loadGame(options = {}) {
   const elements = new Map();
@@ -46,24 +50,27 @@ export async function loadGame(options = {}) {
   const seededMath = Object.create(Math);
   seededMath.random = () => ((seed = (seed * 1664525 + 1013904223) >>> 0) / 2**32);
   const storage = options.storage || null;
+  const adapter = {
+    getItem(key) { if (!storage || options.denyStorage) throw new Error('Blocked storage'); return storage.has(key) ? storage.get(key) : null; },
+    setItem(key, value) { if (!storage || options.failWrites || options.denyStorage) throw new Error('Blocked storage'); storage.set(key, String(value)); },
+    removeItem(key) { if (!storage || options.failWrites || options.denyStorage) throw new Error('Blocked storage'); storage.delete(key); },
+  };
+  const events = { window: {}, document: {} };
   const scope = {
-    Terrain, terrainDefinitions, createAnimator, advanceAnimator, sampleAnimation, heroAtlas,
+    Terrain, checkpointPosition, terrainDefinitions, createAnimator, advanceAnimator, sampleAnimation, heroAtlas,
     campaignChapters, chapterById, missionDefinitions, sideviewDefinition,
     applyCampaignEvent, chapterComplete, createCampaignState, nextObjectives, objectiveAvailable,
-    loadSave, newSave, removeSave, storeSave,
-    document: { getElementById: element, querySelectorAll: () => [], addEventListener() {}, createElement: () => ({ hidden: false, classList: { toggle() {} } }) },
-    window: { addEventListener() {} }, navigator: {}, location: { search: options.debug ? '?terrain=1' : '' },
-    matchMedia: () => ({ matches: false }), localStorage: {
-      getItem(key) { if (!storage) throw new Error('Blocked storage'); return storage.has(key) ? storage.get(key) : null; },
-      setItem(key, value) { if (!storage) throw new Error('Blocked storage'); storage.set(key, String(value)); },
-      removeItem(key) { if (!storage) throw new Error('Blocked storage'); storage.delete(key); },
-    },
+    inspectSave: () => inspectSave(adapter), loadSave: () => loadSave(adapter), newSave, restartAdventure, rememberCampaign, rememberEnding, eligibleEnding, MAX_ENERGY, upgradeChapters,
+    removeSave: () => removeSave(adapter), storeSave: (save) => storeSave(save, adapter),
+    document: { getElementById: element, querySelectorAll: () => [], addEventListener(name, fn) { events.document[name] = fn; }, createElement: () => ({ hidden: false, classList: { toggle() {} } }) },
+    window: { addEventListener(name, fn) { events.window[name] = fn; } }, navigator: {}, location: { search: options.debug ? '?terrain=1' : '' },
+    matchMedia: () => ({ matches: false }), localStorage: adapter,
     devicePixelRatio: 2, Image: AssetImage, performance, URLSearchParams, console,
     requestAnimationFrame() {}, setTimeout, clearTimeout, Math: seededMath,
   };
   // Expose functions in this test context only; production has no debug mutation API.
   const source = readFileSync(new URL('../public/journey.js', import.meta.url), 'utf8').replace(/^import .*?;\n/gm, '');
-  vm.runInNewContext(source + `\nglobalThis.game = { state, input, regions, sideviewDefinition, boot, resetGame, enterRegion, moveActor, updateMovement, updateEnemies, updateBolts, updateEncounter, update, resize, draw, frame, clearInput, spawnEnemy, hitEnemy, damageHero, attack, dash, unleashGripe, fireUltimate, completeRegion, pauseGame, resumeGame, openMap, closeMap, chooseUpgrade, finishGame, completeObjective, useContextTarget, updateContextTarget, startSideview, finishSideview, sideviewAction, showContextHelp, dismissContextHelp, toggleGameplayHelp, openVerdict, chooseVerdict };`, scope);
+  vm.runInNewContext(source + `\nglobalThis.game = { state, input, regions, sideviewDefinition, boot, resetGame, enterRegion, moveActor, updateMovement, updateEnemies, updateBolts, updateEncounter, update, resize, draw, frame, clearInput, spawnEnemy, hitEnemy, damageHero, attack, dash, unleashGripe, fireUltimate, completeRegion, pauseGame, resumeGame, openMap, closeMap, chooseUpgrade, finishGame, completeObjective, useContextTarget, updateContextTarget, startSideview, finishSideview, sideviewAction, showContextHelp, dismissContextHelp, toggleGameplayHelp, toggleWhining, triggerWhiningDemo, openVerdict, chooseVerdict };`, scope);
   await new Promise(setImmediate);
-  return { ...scope.game, element, options, drawnImages };
+  return { ...scope.game, element, options, drawnImages, events, document: scope.document, adapter };
 }
