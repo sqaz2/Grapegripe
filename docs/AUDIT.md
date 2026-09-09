@@ -1,5 +1,15 @@
 # Gameplay audit and implemented foundations
 
+## September 9 remediation
+
+Read [AUDIT-REPAIRS.md](AUDIT-REPAIRS.md) for current fixes and evidence. The current test suite passes 64 tests, including real adapter-backed reloads, interrupted upgrade choices, denied storage and recovery through write failure. The older sections below record historical implementation work; they are not a claim of live-domain or physical-phone verification.
+
+## Current universe foundation audit — 2026-09-05
+
+See [UNIVERSE-SCOPE.md](UNIVERSE-SCOPE.md) for the current full scope and [SOL-NEXT.md](SOL-NEXT.md) for ordered acceptance gates. New Run previously removed the only campaign save; victories were a single boolean and repeated save calls recreated revision zero. These are now separated into a stable local character, cumulative memory, and a resettable adventure. Schema-1 migration, same-character recovery, future-format protection, valid backups, sequential stale-write rejection and unique ending criteria are covered by regression tests. The remaining undefined mastery-energy cap was also corrected.
+
+This is game-side preparation, not shared-server integration. StarMuff accounts, database saves and a subgame handoff pattern were inspected read-only. Cross-game travel, global avatar rendering and friends are still future work. Device-local saving remains explicitly labeled. No browser or real-phone audit was performed in this pass.
+
 Scope: source, existing art, recovered design research, collision geometry and headless logic tests. The release addendum now also covers objectives, persistence, the side-view passage and the finale. This pass did not run browser QA, measure a physical phone or observe new human playtests. The user's completed run is the evidence that the original demo was too easy to exhaust; its exact playtime was not measured here.
 
 ## Findings
