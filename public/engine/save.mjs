@@ -2,8 +2,9 @@ import { CAMPAIGN_SCHEMA_VERSION, chapterIds, objectiveIds, rewardIds } from '..
 import { createCampaignState } from './campaign.mjs';
 import { createMemory, validateMemory, rememberCampaign, masteryIds } from './journey-memory.mjs';
 import { checkpointId } from './checkpoints.mjs';
+import { createFrontierState, validateFrontier } from './frontier-state.mjs';
 
-export const SAVE_SCHEMA_VERSION = 2;
+export const SAVE_SCHEMA_VERSION = 3;
 export const MAX_ENERGY = 99_999;
 export const upgradeChapters = Object.freeze(chapterIds.slice(0, -1));
 // Keep the storage address so existing players migrate in place, with a backup.
@@ -20,6 +21,7 @@ export function newSave() {
     revision: 0,
     memory: createMemory(),
     campaign: createCampaignState(),
+    frontier: createFrontierState(),
     checkpoint: { chapterId: 'root', anchorId: 'root-start' },
     run: { id: crypto.randomUUID(), score: 0, energy: 0, upgrades: { power: 0, speed: 0, shield: 0 }, endingSeen: false, agedPoorly: false, pendingUpgrade: null, upgradesClaimed: [] },
     preferences: { sound: true, haptics: true, shake: true, whining: true },
@@ -27,7 +29,7 @@ export function newSave() {
 }
 
 export function validateSave(value) {
-  if (!value || typeof value !== 'object' || ![CAMPAIGN_SCHEMA_VERSION, SAVE_SCHEMA_VERSION].includes(value.schemaVersion)) return null;
+  if (!value || typeof value !== 'object' || ![CAMPAIGN_SCHEMA_VERSION, 2, SAVE_SCHEMA_VERSION].includes(value.schemaVersion)) return null;
   const legacy = value.schemaVersion === CAMPAIGN_SCHEMA_VERSION;
   if (!legacy && (!validateMemory(value.memory) || typeof value.run?.id !== 'string' || !/^[a-zA-Z0-9:_-]{1,100}$/.test(value.run.id))) return null;
   const base = newSave();
@@ -61,6 +63,7 @@ export function validateSave(value) {
     memory,
     revision: clampInt(value.revision, 0, 1_000_000),
     campaign,
+    frontier: validateFrontier(value.frontier),
     checkpoint: { chapterId, anchorId: checkpointId(chapterId, value.checkpoint?.anchorId) },
     run: {
       id: legacy ? base.run.id : value.run.id,
@@ -141,6 +144,7 @@ export function restartAdventure(save, { agedPoorly = false } = {}) {
   const next = newSave();
   if (previous) {
     next.memory = previous.memory;
+    next.frontier = { ...previous.frontier, active: false, activeRoute: null };
     next.preferences = previous.preferences;
     next.revision = previous.revision;
   }
