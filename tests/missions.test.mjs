@@ -67,3 +67,21 @@ test('exact Sommelier flavor strings ship in the tip and receipt channels', () =
   assert.ok(missions.includes("Guest said 'notes of regret.'"));
   assert.ok(journey.includes("Guest said 'notes of regret.'"));
 });
+
+test('Press Pit Tippler Receipt props sit on floor and chain from the cork', () => {
+  const terrain = new Terrain(terrainDefinitions.press);
+  const press = missionDefinitions.press;
+  const receipt = press.props.find((prop) => prop.id === 'press-tippler-receipt');
+  const door = press.props.find((prop) => prop.id === 'press-tippler-door');
+  const snack = press.props.find((prop) => prop.id === 'press-tippler-snack');
+  const rat = press.encounters.find((encounter) => encounter.id === 'press-tippler-rat');
+  assert.ok(receipt && door && snack && rat);
+  assert.equal(receipt.kind, 'clue-receipt');
+  assert.equal(door.kind, 'tippler-door');
+  assert.equal(snack.kind, 'tippler-snack');
+  assert.deepEqual(rat.types, ['tippler-rat']);
+  for (const prop of [receipt, door, snack]) {
+    assert.ok(terrain.contains({ x: prop.position[0], y: prop.position[1] }, 14), prop.id);
+  }
+  assert.ok(terrain.contains({ x: rat.position[0], y: rat.position[1] }, 28), 'tippler rat');
+});

@@ -198,3 +198,12 @@ test('old saves recover an unclaimed upgrade and retain already earned ones', ()
   assert.equal(validateSave(old).run.pendingUpgrade, null);
   assert.deepEqual(validateSave(old).run.upgradesClaimed, ['root']);
 });
+
+test('Tippler Receipt mastery survives validation and reload', () => {
+  const storage = memoryStorage();
+  const save = newSave();
+  save.campaign.mastered.push('tipplers-receipt');
+  const stored = storeSave(save, storage);
+  assert.ok(stored.campaign.mastered.includes('tipplers-receipt'));
+  assert.ok(loadSave(storage).campaign.mastered.includes('tipplers-receipt'));
+});
