@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#1a1020" />
+    <meta
+      name="description"
+      content="Eutopia — a sealed tasting-estate prototype narrated by a Sommelier AI. Separate from the 2D Grape Gripe journey."
+    />
+    <title>Eutopia · Grape Gripe</title>
+    <link rel="stylesheet" href="./eutopia.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <main id="shell" aria-label="Eutopia prototype">
+      <canvas id="view" aria-label="First-person lobby. Walk into the left or right door."></canvas>
+
+      <header class="topbar">
+        <a href="../">← Journey</a>
+        <div>
+          <strong>EUTOPIA</strong>
+          <span id="beat-title">The Sealed Estate</span>
+        </div>
+        <button id="restart" type="button">Restart</button>
+      </header>
+
+      <aside class="narrator-panel" aria-live="polite">
+        <p class="eyebrow">Narrator Sommelier</p>
+        <p id="narrator">…</p>
+        <p id="instruction" class="instruction">…</p>
+        <button id="continue-narrator" type="button" hidden>Continue line ▸</button>
+      </aside>
+
+      <nav class="door-controls" aria-label="Door choices">
+        <button id="door-left" type="button">◀ Approved (LEFT)</button>
+        <button id="door-right" type="button" class="forbidden">Forbidden (RIGHT) ▶</button>
+      </nav>
+
+      <p class="hint">WASD / arrows move · Q/E or drag to turn · walk into a door or tap the buttons · Space advances lines</p>
+
+      <div id="boot" class="overlay">
+        <article>
+          <small>GRAPE.GRIPE / A SEPARATE 3D MODE</small>
+          <h1>Eutopia</h1>
+          <p>
+            A sealed “perfect tasting estate” run by a Narrator Sommelier.
+            You are the quality-control guest. Follow the script for a brochure ending —
+            or ignore it and watch the wine-world glitch.
+          </p>
+          <p class="fine">Separate from the 2D Sol Max / Vineway campaign. Vertical slice only.</p>
+          <button id="start" type="button">Enter the estate</button>
+        </article>
+      </div>
+
+      <div id="overlay" class="overlay" hidden>
+        <article id="overlay-body"></article>
+        <button type="button" id="overlay-restart" onclick="document.getElementById('restart').click()">
+          Restart Eutopia
+        </button>
+      </div>
+    </main>
+    <script type="module" src="./eutopia.js"></script>
+  </body>
+</html>
