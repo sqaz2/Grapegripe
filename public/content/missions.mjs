@@ -35,9 +35,13 @@ export const missionDefinitions = Object.freeze({
       { id: 'press-vent-east', objectiveId: 'press-vent-east', kind: 'vent', position: [600, 585], radius: 46 },
       { id: 'press-verdict', objectiveId: 'press-verdict', kind: 'verdict', position: [480, 470], radius: 68 },
       { id: 'press-exit', kind: 'lift', position: [491, 369], radius: 54 },
+      { id: 'press-tippler-receipt', objectiveId: 'press-tippler-receipt', kind: 'clue-receipt', position: [560, 1000], radius: 48 },
+      { id: 'press-tippler-door', kind: 'tippler-door', position: [717, 795], radius: 58 },
+      { id: 'press-tippler-snack', objectiveId: 'press-tippler-snack', kind: 'tippler-snack', position: [717, 760], radius: 48 },
     ],
     encounters: [
       { id: 'press-ambush', position: [478, 920], trigger: 118, types: ['sourling', 'brute', 'moth'] },
+      { id: 'press-tippler-rat', objectiveId: 'press-tippler-rat', position: [700, 820], trigger: 70, types: ['tippler-rat'] },
     ],
   },
   sourwood: {

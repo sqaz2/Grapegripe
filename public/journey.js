@@ -128,6 +128,8 @@ const enemyTypes = {
   moth: { image: 'moth', hp: 5, speed: 43, damage: 10, radius: 22, height: 74, score: 12, straw: 14, behavior: 'ranged' },
   brute: { image: 'brute', hp: 14, speed: 30, damage: 20, radius: 34, height: 112, score: 28, straw: 22, behavior: 'brute' },
   boss: { image: 'boss', hp: 82, speed: 25, damage: 24, radius: 51, height: 164, score: 150, straw: 100, behavior: 'boss' },
+  // Tippler Rat reuses Sourling art with a wine wash; optional Press Pit side-room guardian.
+  'tippler-rat': { image: 'sourling', hp: 9, speed: 62, damage: 14, radius: 21, height: 72, score: 36, straw: 18, behavior: 'charge' },
 };
 
 const images = {};
@@ -211,6 +213,7 @@ const state = {
   sideview: null,
   guardAvailable: false,
   clueReaction: null,
+  tipplerSideOpen: false,
   helpEnabled: readSaved('grape-gripe-gameplay-help') !== 'off',
   whiningEnabled: readSaved('grape-gripe-whining') !== 'off',
   helpReturnMode: 'playing',
@@ -236,6 +239,11 @@ const contextHelpDefinitions = Object.freeze({
     title: 'There is more to this gripe',
     copy: 'Find what was seen, what was read, and what was wanted. Then choose what happens.',
     announcement: 'Three clues reveal the choice: seen, read, and wanted.',
+  },
+  'tipplers-receipt': {
+    title: 'Press Pit tip',
+    copy: 'A Vineway barista stamped your glass with "notes of unpaid overtime" and the cork rolled straight into the Press Pit. Companion side-eyes the spill like you planned it.',
+    announcement: 'A Vineway barista stamped your glass with "notes of unpaid overtime" and the cork rolled straight into the Press Pit.',
   },
 });
 
@@ -624,7 +632,8 @@ function enterRegion(index, fresh = false, anchorId = null) {
   configureSideviewControls(false);
   state.bossFinale = null;
   state.clueReaction = null;
-  state.guardAvailable = state.campaign.routeChoices.press === 'save';
+  state.tipplerSideOpen = objectiveComplete('press-tippler-receipt') || objectiveComplete('press-tippler-rat') || objectiveComplete('press-tippler-snack');
+  state.guardAvailable = state.campaign.routeChoices.press === 'save' || state.campaign.mastered.includes('tipplers-receipt');
   state.guidance = { route: [], timer: 0, revision: -1 };
   hideOverlays();
   configureWorld();
@@ -788,6 +797,10 @@ function propReady(prop) {
   if (prop.kind === 'cork') return !state.carried && !objectiveComplete('press-cork-delivered');
   if (prop.kind === 'socket') return state.carried === 'press-cork' && objectiveAvailable(state.campaign, prop.objectiveId);
   if (prop.kind === 'passage') return objectiveAvailable(state.campaign, prop.objectiveId) || objectiveComplete(prop.objectiveId);
+  if (prop.kind === 'tippler-door') {
+    return objectiveComplete('press-tippler-receipt') && !objectiveComplete('press-tippler-rat');
+  }
+  if (prop.kind === 'tippler-snack') return objectiveAvailable(state.campaign, prop.objectiveId);
   if (prop.kind.startsWith('route-')) return objectiveAvailable(state.campaign, prop.objectiveId);
   return prop.objectiveId ? objectiveAvailable(state.campaign, prop.objectiveId) : false;
 }
@@ -881,6 +894,15 @@ function useContextTarget() {
     completeObjective(prop.objectiveId, { x: prop.x, y: prop.y, score: 90, energy: 6, anchorId: 'press-cork' });
     return true;
   }
+  if (prop.kind === 'clue-receipt') {
+    const changed = completeObjective(prop.objectiveId, { x: prop.x, y: prop.y, score: 70, energy: 5, straw: 8 });
+    if (changed) {
+      state.tipplerSideOpen = true;
+      state.clueReaction = { kind: prop.kind, until: state.time + 2.6 };
+      if (!showContextHelp('tipplers-receipt')) announce('Sticky receipt peeled. Fake vintage code opens a sticky side room.');
+    }
+    return changed;
+  }
   if (prop.kind.startsWith('clue-')) {
     const changed = completeObjective(prop.objectiveId, { x: prop.x, y: prop.y, score: 70, energy: 5, straw: 8 });
     if (changed) {
@@ -888,6 +910,26 @@ function useContextTarget() {
       showContextHelp('press-mystery');
     }
     return changed;
+  }
+  if (prop.kind === 'tippler-door') {
+    state.tipplerSideOpen = true;
+    sound('secret');
+    burstParticles(prop.x, prop.y, '#ffcd54', 22, 150);
+    state.shockwaves.push({ x: prop.x, y: prop.y, radius: 10, max: 120, life: 0.7, color: '#ffcd54' });
+    announce('Fake vintage code opens a sticky side room.');
+    return true;
+  }
+  if (prop.kind === 'tippler-snack') {
+    const changed = completeObjective(prop.objectiveId, { x: prop.x, y: prop.y, score: 120, energy: 8, straw: 20, anchorId: 'press-tippler-snack' });
+    if (!changed) return false;
+    state.guardAvailable = true;
+    if (!state.campaign.mastered.includes('tipplers-receipt')) {
+      state.campaign.mastered.push('tipplers-receipt');
+      saveProgress('press-tippler-snack', 'press');
+    }
+    state.clueReaction = { kind: 'tippler-snack', until: state.time + 2.4 };
+    announce('Companion-trust snack claimed. Your lime will block one hit.');
+    return true;
   }
   if (prop.kind === 'verdict') { openVerdict(); return true; }
   if (prop.objectiveId) {
@@ -1126,7 +1168,7 @@ function fireUltimate() {
 function spawnEnemy(typeName, anchor = asPoint(currentTerrainData().encounters[state.encounterIndex])) {
   const spec = enemyTypes[typeName];
   const regionScale = 1 + state.regionIndex * 0.14;
-  const footRadius = { sourling: 10, moth: 12, brute: 21, boss: 28 }[typeName];
+  const footRadius = { sourling: 10, moth: 12, brute: 21, boss: 28, 'tippler-rat': 12 }[typeName];
   let position = null;
   for (let attempt = 0; attempt < 12; attempt++) {
     const candidate = state.terrain.project({ x: anchor.x + (Math.random() - 0.5) * 190, y: anchor.y + (Math.random() - 0.25) * 95 }, footRadius);
@@ -1170,7 +1212,9 @@ function triggerEncounter(encounter) {
     state.bossFinale = { phase: 'core', time: 0, fired: false };
   }
   state.shockwaves.push({ ...anchor, radius: 12, max: 95, life: 0.75, color: '#ff4c70' });
-  announce(encounter.id === 'gripe-maw' ? 'The Gripe Maw opens. Break it with the Grape Gripe.' : 'A thorn gate closes. Clear the path.');
+  announce(encounter.id === 'gripe-maw' ? 'The Gripe Maw opens. Break it with the Grape Gripe.'
+    : encounter.id === 'press-tippler-rat' ? 'A Tippler Rat guards the companion-trust snack.'
+    : 'A thorn gate closes. Clear the path.');
 }
 
 function spawnHostileBolt(enemy, angle, speed = 155) {
@@ -1279,7 +1323,7 @@ function killEnemy(enemy) {
 function damageHero(amount) {
   const hero = state.hero;
   if (!hero || hero.invulnerable > 0 || state.mode !== 'playing') return;
-  if (state.campaign.routeChoices.press === 'save' && state.guardAvailable) {
+  if (state.guardAvailable && (state.campaign.routeChoices.press === 'save' || state.campaign.mastered.includes('tipplers-receipt'))) {
     state.guardAvailable = false;
     hero.invulnerable = 0.85;
     hero.shieldPulse = 0.82;
@@ -1558,6 +1602,7 @@ function updateEncounter(dt) {
     const encounter = state.mission?.encounters.find((item) => {
       if (item.triggered || item.cleared) return false;
       if (item.objectiveId && !objectiveAvailable(state.campaign, item.objectiveId)) return false;
+      if (item.id === 'press-tippler-rat' && !state.tipplerSideOpen && !objectiveComplete('press-tippler-receipt')) return false;
       return distance(item, state.hero) <= item.trigger;
     });
     if (encounter) triggerEncounter(encounter);
@@ -2399,11 +2444,39 @@ function drawMissionProps() {
       } else if (prop.kind === 'clue-read') {
         ctx.beginPath(); ctx.roundRect(-17, -23, 34, 46, 4); ctx.stroke();
         for (const y of [-10, 1, 12]) { ctx.beginPath(); ctx.moveTo(-9, y); ctx.lineTo(10, y); ctx.stroke(); }
+      } else if (prop.kind === 'clue-receipt') {
+        ctx.fillStyle = done ? 'rgba(217,255,69,.3)' : '#fff4d2';
+        ctx.strokeStyle = clueColor; ctx.lineWidth = 4;
+        ctx.beginPath(); ctx.roundRect(-22, -28, 44, 56, 5); ctx.fill(); ctx.stroke();
+        ctx.strokeStyle = '#6b3018'; ctx.lineWidth = 2.5;
+        for (const y of [-14, -4, 6, 16]) { ctx.beginPath(); ctx.moveTo(-12, y); ctx.lineTo(y === 6 ? 4 : 12, y); ctx.stroke(); }
+        // Fake vintage barcode strip
+        ctx.fillStyle = '#32143f';
+        for (let i = 0; i < 7; i += 1) {
+          const w = i % 2 ? 2 : 3.5;
+          ctx.fillRect(-14 + i * 4.2, 18, w, 10);
+        }
       } else {
         ctx.fillStyle = '#ff5aa9'; ctx.beginPath();
         ctx.moveTo(0, 22); ctx.bezierCurveTo(-38, 0, -22, -26, 0, -10); ctx.bezierCurveTo(22, -26, 38, 0, 0, 22); ctx.fill();
       }
       if (done) { ctx.strokeStyle = '#32143f'; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(14, 17); ctx.lineTo(22, 25); ctx.lineTo(36, 8); ctx.stroke(); }
+    } else if (prop.kind === 'tippler-door') {
+      const open = state.tipplerSideOpen || objectiveComplete('press-tippler-rat') || objectiveComplete('press-tippler-snack');
+      ctx.strokeStyle = open ? '#d9ff45' : ready ? '#ffcd54' : '#704183'; ctx.lineWidth = 7;
+      ctx.beginPath(); ctx.moveTo(-34, 34); ctx.lineTo(-34, -8); ctx.quadraticCurveTo(0, -48, 34, -8); ctx.lineTo(34, 34); ctx.stroke();
+      ctx.fillStyle = open ? 'rgba(217,255,69,.28)' : 'rgba(70,28,96,.72)';
+      ctx.beginPath(); ctx.moveTo(-28, 30); ctx.lineTo(-28, -4); ctx.quadraticCurveTo(0, -36, 28, -4); ctx.lineTo(28, 30); ctx.closePath(); ctx.fill();
+      if (ready || open) {
+        ctx.fillStyle = '#32143f';
+        for (let i = 0; i < 8; i += 1) ctx.fillRect(-16 + i * 4.2, -6, i % 3 === 0 ? 2.8 : 1.6, 18);
+      }
+    } else if (prop.kind === 'tippler-snack') {
+      if (!ready && !done) { ctx.restore(); continue; }
+      ctx.fillStyle = done ? '#d9ff45' : '#ff83bd'; ctx.strokeStyle = '#fff8dc'; ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.moveTo(0, 20); ctx.bezierCurveTo(-34, 0, -20, -24, 0, -10); ctx.bezierCurveTo(20, -24, 34, 0, 0, 20); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#fff8dc'; ctx.beginPath(); ctx.arc(-6, -2, 4, 0, Math.PI * 2); ctx.arc(7, 2, 3.2, 0, Math.PI * 2); ctx.fill();
     } else if (prop.kind === 'verdict') {
       const choice = state.campaign.routeChoices.press;
       const glow = choice ? verdictColor(choice) : ready ? '#d9ff45' : '#6b377d';
@@ -2593,7 +2666,10 @@ function drawEnemy(enemy) {
     ctx.lineTo(enemy.x + Math.cos(angle) * 80, enemy.y + Math.sin(angle) * 80);
     ctx.stroke();
   }
-  const filter = enemy.hitFlash > 0 ? 'brightness(2) saturate(.3)' : enemy.stunned > 0 ? 'saturate(.55) hue-rotate(38deg)' : 'none';
+  const filter = enemy.hitFlash > 0 ? 'brightness(2) saturate(.3)'
+    : enemy.stunned > 0 ? 'saturate(.55) hue-rotate(38deg)'
+    : enemy.type === 'tippler-rat' ? 'hue-rotate(-28deg) saturate(1.35) brightness(.92)'
+    : 'none';
   drawImageBottom(images[enemy.image], enemy.x, enemy.y + bob, enemy.height * spawnScale, enemy.facing, enemy.spawn, Math.sin(enemy.age * 2 + enemy.id) * 0.025, filter);
   if (enemy.hp < enemy.maxHp && enemy.spawn >= 1) {
     const width = enemy.height * 0.62;
@@ -2768,9 +2844,14 @@ function drawCompanion() {
     ctx.fillStyle = '#fff8dc'; ctx.strokeStyle = '#32143f'; ctx.lineWidth = 3;
     ctx.beginPath(); ctx.arc(18, -35, 22, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(6, -20); ctx.lineTo(2, -8); ctx.lineTo(17, -18); ctx.fill();
-    ctx.fillStyle = state.clueReaction.kind === 'clue-wanted' ? '#ff5aa9' : '#502064';
+    ctx.fillStyle = state.clueReaction.kind === 'clue-wanted' || state.clueReaction.kind === 'tippler-snack' ? '#ff5aa9'
+      : state.clueReaction.kind === 'clue-receipt' ? '#6b3018' : '#502064';
     ctx.font = '1000 22px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-    ctx.fillText(state.clueReaction.kind === 'clue-seen' ? '●' : state.clueReaction.kind === 'clue-read' ? '≡' : '♥', 18, -35);
+    const glyph = state.clueReaction.kind === 'clue-seen' ? '●'
+      : state.clueReaction.kind === 'clue-read' ? '≡'
+      : state.clueReaction.kind === 'clue-receipt' ? '◔'
+      : state.clueReaction.kind === 'tippler-snack' ? '♥' : '♥';
+    ctx.fillText(glyph, 18, -35);
   }
   if (funny && gagTime > 0.68 && gagTime < 1.18) {
     const flash = 1 - Math.abs(gagTime - 0.93) / 0.25;

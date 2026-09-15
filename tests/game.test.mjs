@@ -524,3 +524,58 @@ test('Sommelier Speedrun: flying corks, mispour telegraph, three clean pours unl
   assert.equal(side.guestReceipt.guestLine, "Guest said 'notes of regret.'");
   assert.equal(side.corkPopper.defeated, true);
 });
+
+test('Tippler Receipt peels into a side room, Tippler Rat, and companion-trust snack', async () => {
+  const storage = new Map();
+  const g = await loadGame({ storage });
+  g.resetGame();
+  g.enterRegion(2);
+  assert.equal(g.completeObjective('press-cork-found'), true);
+  const receipt = g.state.mission.props.find((prop) => prop.kind === 'clue-receipt');
+  Object.assign(g.state.hero, { x: receipt.x, y: receipt.y });
+  g.updateContextTarget();
+  assert.equal(g.state.contextTarget?.kind, 'clue-receipt');
+  assert.equal(g.useContextTarget(), true);
+  assert.ok(g.state.campaign.completed.includes('press-tippler-receipt'));
+  assert.equal(g.element('context-help-card').dataset.tip, 'tipplers-receipt');
+  assert.match(g.element('context-help-copy').textContent, /notes of unpaid overtime/);
+  g.dismissContextHelp();
+
+  assert.equal(g.state.tipplerSideOpen, true);
+
+  const door = g.state.mission.props.find((prop) => prop.kind === 'tippler-door');
+  Object.assign(g.state.hero, { x: door.x, y: door.y });
+  g.updateContextTarget();
+  assert.equal(g.state.contextTarget?.kind, 'tippler-door');
+  assert.equal(g.useContextTarget(), true);
+
+  const rat = g.state.mission.encounters.find((encounter) => encounter.id === 'press-tippler-rat');
+  Object.assign(g.state.hero, { x: rat.x, y: rat.y });
+  for (let i = 0; i < 20; i += 1) g.updateEncounter(1 / 60);
+  assert.equal(g.state.gate?.encounter?.id, 'press-tippler-rat');
+  assert.ok(g.state.enemies.some((enemy) => enemy.type === 'tippler-rat') || g.state.spawnQueue.some((spawn) => spawn.type === 'tippler-rat'));
+
+  // Clear the optional fight and claim the snack.
+  g.state.spawnQueue = [];
+  g.state.enemies = [];
+  g.state.gate.clearTimer = 1;
+  g.updateEncounter(1 / 60);
+  assert.ok(g.state.campaign.completed.includes('press-tippler-rat'));
+
+  const snack = g.state.mission.props.find((prop) => prop.kind === 'tippler-snack');
+  Object.assign(g.state.hero, { x: snack.x, y: snack.y });
+  g.updateContextTarget();
+  assert.equal(g.useContextTarget(), true);
+  assert.ok(g.state.campaign.completed.includes('press-tippler-snack'));
+  assert.ok(g.state.campaign.mastered.includes('tipplers-receipt'));
+  assert.equal(g.state.guardAvailable, true);
+
+  // Companion trust blocks one hit even without the SAVE verdict.
+  g.state.campaign.routeChoices.press = undefined;
+  const health = g.state.hero.health;
+  g.damageHero(24);
+  assert.equal(g.state.hero.health, health);
+  assert.equal(g.state.guardAvailable, false);
+
+  assert.ok(g.state.campaign.mastered.includes('tipplers-receipt'));
+});

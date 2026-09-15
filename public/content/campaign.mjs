@@ -41,6 +41,10 @@ export const campaignChapters = Object.freeze([
       { id: 'press-vent-west', kind: 'strike', target: 'press-vent-west', requires: ['press-cork-delivered'] },
       { id: 'press-vent-east', kind: 'strike', target: 'press-vent-east', requires: ['press-cork-delivered'] },
       { id: 'press-verdict', kind: 'choose', target: 'press-verdict', requires: ['press-cork-delivered', 'press-clue-seen', 'press-clue-read', 'press-clue-wanted', 'press-vent-west', 'press-vent-east'] },
+      // Optional Tippler's Receipt side-room: peel sticky receipt → fake vintage door → Tippler Rat → companion-trust snack.
+      { id: 'press-tippler-receipt', kind: 'clue', target: 'press-tippler-receipt', requires: ['press-cork-found'], optional: true },
+      { id: 'press-tippler-rat', kind: 'encounter', target: 'press-tippler-rat', requires: ['press-tippler-receipt'], optional: true },
+      { id: 'press-tippler-snack', kind: 'rescue', target: 'press-tippler-snack', requires: ['press-tippler-rat'], optional: true },
   ],
   },
   {
