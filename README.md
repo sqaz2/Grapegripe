@@ -29,6 +29,11 @@ Start with [the current universe scope](docs/UNIVERSE-SCOPE.md) and [Sol's next 
 
 [The Sol handoff](docs/SOL-HANDOFF.md) records the current build state, [the repair report](docs/AUDIT-REPAIRS.md) covers the September 9 fixes, and [the art handoff](docs/ART-HANDOFF.md) identifies the remaining authored-animation gap. The campaign, checkpoint, route-choice, side-view, distinct objective, finale, restoration, guide, and rematch systems are implemented.
 
+## Side modes
+
+- [Berry Beef](public/berry-beef.html) — separate 2D rivalry arena
+- [Eutopia](public/eutopia/) — separate 3D Narrator Sommelier prototype ([docs/EUTOPIA.md](docs/EUTOPIA.md))
+
 ## Run locally
 
 Serve the `public` directory with any static web server. For example:

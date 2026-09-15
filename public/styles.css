@@ -1678,7 +1678,7 @@ button:focus-visible {
   }
 }
 
-.berry-mode-link{position:relative;z-index:2;color:#fff;background:#78344c;padding:12px 20px;border-radius:14px;text-decoration:none;font:700 16px system-ui;margin:8px}.start-screen{grid-template-rows:auto 1fr auto auto auto}
+.berry-mode-link{position:relative;z-index:2;color:#fff;background:#78344c;padding:12px 20px;border-radius:14px;text-decoration:none;font:700 16px system-ui;margin:8px}.eutopia-mode-link{background:#4a3060;margin-left:4px}.start-screen{grid-template-rows:auto 1fr auto auto auto}
 
 .save-status {
   position: absolute;
