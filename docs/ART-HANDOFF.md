@@ -39,3 +39,9 @@ Do not repeatedly generate the same large sprite sheet when the model fails at a
 September 9 repair attempt: three targeted six-pose strips were generated separately for southwest, west and northwest. All were rejected. They contained opaque checkerboard pixels and still repeated the leading boot; the west candidate also drifted into a three-quarter view. None replaced the existing atlas. The required next delivery is an authored pose/rig pass with visible opposite-foot contacts, not another uninspected generated sheet.
 
 View each direction separately over both light and dark floor, then move continuously through all eight directions at gameplay size. Check a slow walk, a normal walk, wall pushing, stop/start, a dash and an attack during movement. Foot alternation must be obvious without zooming in. The numerical unit tests validate frame selection and timing, not the quality or anatomy of these pictures.
+
+## Sol Max #4 Part 1 — SW/W/NW contact-frame remap (code)
+
+Until authored alternating strips land, `walkColumn()` in `public/engine/animation.mjs` reverses walk columns for flipped facings (directions 0/1/7 → west / northwest / southwest). That makes opposite contact and passing frames lead after mirroring, instead of repeating the same leading boot across the cycle.
+
+This does **not** replace the atlas art. Part 1 is the controller fix only; a later Part still needs visible opposite-foot poses in the sheet itself.

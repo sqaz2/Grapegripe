@@ -10,6 +10,16 @@ const facings = [
 // dedicated idle atlas can replace these without changing the state machine.
 const idleColumns = [2, 0, 1, 0, 0];
 
+// SW / W / NW are mirrored east-side rows. After flip, the authored column
+// order still leads with the same boot — reverse the walk columns so opposite
+// contact / passing frames lead (Sol Max #4 Part 1 contact-frame fix).
+export function walkColumn(phase, flip = 1) {
+  const unit = (((phase % 1) + 1) % 1);
+  // Epsilon keeps exact k/6 boundaries inside the intended column bin.
+  const raw = Math.min(5, Math.floor(unit * 6 + 1e-9));
+  return flip < 0 ? (5 - raw) : raw;
+}
+
 export function createAnimator() {
   return { phase: 0, state: 'idle', stateTime: 0, distance: 0 };
 }
@@ -52,7 +62,7 @@ export function sampleAnimation(animator, direction = 2) {
       idleBreath: Math.sin(animator.stateTime * 2.15) * 0.008,
     };
   }
-  const column = animator.state === 'dash' ? 0 : Math.floor(animator.phase * 6) % 6;
+  const column = animator.state === 'dash' ? 0 : walkColumn(animator.phase, facing.flip);
   return {
     ...facing,
     column,

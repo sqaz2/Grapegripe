@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createAnimator, advanceAnimator, sampleAnimation, STRIDE_LENGTH } from '../public/engine/animation.mjs';
+import { createAnimator, advanceAnimator, sampleAnimation, walkColumn, STRIDE_LENGTH } from '../public/engine/animation.mjs';
 
 test('walking uses displacement and selects all six frame indices', () => {
   const a = createAnimator(), frames = new Set();
@@ -56,4 +56,30 @@ test('gait is frame-rate independent and all eight directions are explicit', () 
   const copy = sampleAnimation(a, 2);
   advanceAnimator(a, { distance: 15, dt: .1 });
   assert.notEqual(copy.phase, a.phase, 'dash trail must retain its captured pose');
+});
+
+test('SW/W/NW flipped facings reverse walk columns so opposite contact leads', () => {
+  // East (dir 4, flip +1) and west (dir 0, flip -1) must disagree at mid-stride contact.
+  const a = createAnimator();
+  advanceAnimator(a, { distance: STRIDE_LENGTH * 0.08, dt: 1 / 60 }); // early contact column
+  const east = sampleAnimation(a, 4);
+  const west = sampleAnimation(a, 0);
+  const nw = sampleAnimation(a, 1);
+  const sw = sampleAnimation(a, 7);
+  assert.equal(east.flip, 1);
+  assert.equal(west.flip, -1);
+  assert.equal(nw.flip, -1);
+  assert.equal(sw.flip, -1);
+  assert.equal(west.column, walkColumn(a.phase, -1));
+  assert.equal(east.column, walkColumn(a.phase, 1));
+  assert.equal(west.column, 5 - east.column);
+  assert.equal(nw.column, west.column);
+  assert.equal(sw.column, west.column);
+});
+
+test('walkColumn keeps six distinct frames and mirrors under flip', () => {
+  const forward = Array.from({ length: 6 }, (_, i) => walkColumn(i / 6, 1));
+  const mirrored = Array.from({ length: 6 }, (_, i) => walkColumn(i / 6, -1));
+  assert.deepEqual(forward, [0, 1, 2, 3, 4, 5]);
+  assert.deepEqual(mirrored, [5, 4, 3, 2, 1, 0]);
 });
