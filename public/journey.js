@@ -223,14 +223,14 @@ const state = {
 
 const contextHelpDefinitions = Object.freeze({
   'press-cork': {
-    title: 'Cork secured',
-    copy: 'Carry it to the glowing socket. You can still fire.',
-    announcement: 'Cork secured. Carry it to the glowing socket.',
+    title: 'Press Pit tip',
+    copy: 'the cork-popper in aisle 7 times your pours. One wrong vintage and the whole tasting room goes feral. Carry it to the glowing socket — you can still fire.',
+    announcement: "Press Pit tip: the cork-popper in aisle 7 times your pours. One wrong vintage and the whole tasting room goes feral.",
   },
   'sideview-controls': {
-    title: 'Climb the Vineway',
-    copy: 'Face a vine, then hold the green vine button. Pump the stick to swing. Release to fly.',
-    announcement: 'Face a vine, hold the green vine button, pump the stick, then release to fly.',
+    title: 'Sommelier Speedrun',
+    copy: 'Face a vine, then hold the green vine button. Pump the stick to swing. Release to fly. Dodge flying corks, wait out the Cork-Popper mispour glow, then land three clean pours for the guest receipt.',
+    announcement: 'Face a vine, hold the green vine button, pump the stick, then release to fly. Sommelier Speedrun: dodge corks, wait out the mispour glow, land three clean pours for the guest receipt.',
   },
   'press-mystery': {
     title: 'There is more to this gripe',
@@ -809,6 +809,7 @@ function updateContextTarget() {
 function startSideview() {
   clearInput();
   state.mode = 'sideview';
+  const guest = sideviewDefinition.guestReceipt;
   state.sideview = {
     x: sideviewDefinition.spawn.x, y: sideviewDefinition.spawn.y,
     vx: 0, vy: 0, grounded: false, checkpointX: sideviewDefinition.spawn.x,
@@ -822,6 +823,25 @@ function startSideview() {
     flyCount: 0, hitCooldown: 0,
     assistFailures: 0, assistDemo: 0, assistVineIndex: null,
     masteryAwarded: state.campaign.mastered.includes('vineway-receipt-run'), masteryFlash: 0,
+    corks: sideviewDefinition.corks.map((cork, id) => ({ ...cork, baseX: cork.x, baseY: cork.y, id, defeated: false, spin: cork.phase })),
+    flyingCorks: [],
+    pours: sideviewDefinition.pours.map((pour, id) => ({ ...pour, id, filled: false })),
+    cleanPourCount: 0,
+    guestReceipt: {
+      x: guest.x, y: guest.y, guestLine: guest.guestLine,
+      unlocked: state.campaign.mastered.includes('sommelier-speedrun'),
+      collected: state.campaign.mastered.includes('sommelier-speedrun'),
+    },
+    corkPopper: {
+      x: sideviewDefinition.corkPopper.x,
+      y: sideviewDefinition.corkPopper.y,
+      phase: 'idle',
+      timer: 1.4,
+      mispour: null,
+      defeated: state.campaign.mastered.includes('sommelier-speedrun'),
+    },
+    sommelierAwarded: state.campaign.mastered.includes('sommelier-speedrun'),
+    sommelierFlash: 0,
   };
   state.contextTarget = null;
   attackButton.classList.remove('is-context');
@@ -829,7 +849,7 @@ function startSideview() {
   showGameControls(true);
   mapButton.hidden = true;
   companionButton.disabled = true;
-  announce('A hidden passage. Keep moving toward the light.');
+  announce('Sommelier Speedrun. Keep moving toward the light.');
   showContextHelp('sideview-controls');
 }
 
@@ -1604,6 +1624,185 @@ function sideLandingAt(x, oldY, nextY) {
     .sort((a, b) => a.y - b.y)[0] || null;
 }
 
+function sideInMispour(side) {
+  const zone = side.corkPopper?.mispour;
+  if (!zone || zone.armed <= 0) return false;
+  return Math.hypot(side.x - zone.x, side.y - zone.y) <= zone.radius + 18;
+}
+
+function bounceSideHero(side, fromX, fromY, color = '#ff4fa3') {
+  releaseSideGrapple(false);
+  side.vx = (Math.sign(side.x - fromX) || -side.direction) * 265;
+  side.vy = -255;
+  side.hitCooldown = .6;
+  state.flash = .22;
+  state.shake = prefersReducedMotion ? 3 : 7;
+  state.shockwaves.push({ x: fromX, y: fromY, radius: 6, max: 48, life: .32, color });
+  burstParticles(side.x, side.y - 42, color, 13, 130);
+  sound('hurt'); vibrate(20);
+}
+
+function launchFlyingCork(side, origin, targetX, targetY, speed = 220) {
+  const dx = targetX - origin.x;
+  const dy = targetY - origin.y;
+  const length = Math.hypot(dx, dy) || 1;
+  side.flyingCorks.push({
+    x: origin.x, y: origin.y,
+    vx: (dx / length) * speed,
+    vy: (dy / length) * speed - 40,
+    spin: Math.random() * Math.PI * 2,
+    life: 3.2,
+  });
+}
+
+function updateSommelierSpeedrun(dt) {
+  const side = state.sideview;
+  if (!side?.corkPopper) return;
+  side.sommelierFlash = Math.max(0, side.sommelierFlash - dt);
+
+  // Ambient flying cork orbits (hazards / projectiles).
+  for (const cork of side.corks) {
+    if (cork.defeated) continue;
+    cork.x = cork.baseX + Math.sin(state.time * 1.35 + cork.phase) * cork.range;
+    cork.y = cork.baseY + Math.cos(state.time * 2.1 + cork.phase) * 18;
+    cork.spin += dt * 5.5;
+    if (side.hitCooldown > 0 || Math.hypot(side.x - cork.x, side.y - 45 - cork.y) >= 40) continue;
+    const impactSpeed = Math.hypot(side.vx, side.vy);
+    if (impactSpeed >= 310 || side.dashTime > 0) {
+      cork.defeated = true;
+      state.score += 40;
+      state.shockwaves.push({ x: cork.x, y: cork.y, radius: 6, max: 58, life: .36, color: '#f0b96f' });
+      burstParticles(cork.x, cork.y, '#f0b96f', 18, 170);
+      sound('heavy'); vibrate(8);
+    } else {
+      bounceSideHero(side, cork.x, cork.y, '#f0b96f');
+    }
+  }
+
+  // Boss-launched cork projectiles.
+  for (const cork of side.flyingCorks) {
+    cork.life -= dt;
+    cork.x += cork.vx * dt;
+    cork.y += cork.vy * dt;
+    cork.vy += 240 * dt;
+    cork.spin += dt * 8;
+    if (cork.life <= 0 || cork.y > 780) continue;
+    if (side.hitCooldown > 0 || Math.hypot(side.x - cork.x, side.y - 45 - cork.y) >= 38) continue;
+    const impactSpeed = Math.hypot(side.vx, side.vy);
+    if (impactSpeed >= 310 || side.dashTime > 0) {
+      cork.life = 0;
+      state.score += 55;
+      burstParticles(cork.x, cork.y, '#f0b96f', 16, 160);
+      sound('heavy');
+    } else {
+      cork.life = 0;
+      bounceSideHero(side, cork.x, cork.y, '#f0b96f');
+    }
+  }
+  side.flyingCorks = side.flyingCorks.filter((cork) => cork.life > 0);
+
+  const boss = side.corkPopper;
+  if (!boss.defeated) {
+    const nearBoss = side.x >= boss.x - 520;
+    boss.timer -= dt;
+    if (boss.mispour) {
+      const zone = boss.mispour;
+      if (zone.phase === 'telegraph') {
+        zone.radius = Math.min(zone.maxRadius, zone.radius + zone.maxRadius * dt / Math.max(0.01, zone.charge));
+        zone.charge = Math.max(0, zone.charge - dt);
+        if (zone.charge <= 0) {
+          zone.phase = 'danger';
+          zone.armed = 0.7;
+          // Launch a fan of flying corks toward the hero.
+          launchFlyingCork(side, boss, side.x, side.y - 45, 250);
+          launchFlyingCork(side, boss, side.x - 70, side.y - 90, 230);
+          launchFlyingCork(side, boss, side.x + 70, side.y - 20, 230);
+          sound('heavy'); vibrate([8, 20, 8]);
+        }
+      } else if (zone.phase === 'danger') {
+        zone.armed -= dt;
+        if (side.hitCooldown <= 0 && sideInMispour(side)) {
+          bounceSideHero(side, zone.x, zone.y, '#ff5aa9');
+        }
+        if (zone.armed <= 0) {
+          boss.mispour = null;
+          boss.phase = 'recover';
+          boss.timer = 1.35;
+        }
+      }
+    } else if (nearBoss && boss.timer <= 0) {
+      if (boss.phase === 'idle' || boss.phase === 'recover') {
+        boss.phase = 'telegraph';
+        const ground = sideGroundAt(side.x) || sideGroundAt(boss.x);
+        boss.mispour = {
+          x: clamp(side.x, boss.x - 260, boss.x + 80),
+          y: ground?.y || sideviewDefinition.floor,
+          radius: 18,
+          maxRadius: 110,
+          charge: 0.95,
+          armed: 0,
+          phase: 'telegraph',
+        };
+        boss.timer = 0.95;
+        sound('dash');
+      } else {
+        boss.phase = 'idle';
+        boss.timer = 1.1;
+      }
+    }
+  }
+
+  // Three clean pours unlock the guest receipt.
+  for (const pour of side.pours) {
+    pour.spillFlash = Math.max(0, (pour.spillFlash || 0) - dt);
+    if (pour.filled || Math.hypot(side.x - pour.x, side.y - 45 - pour.y) >= 40) continue;
+    if (sideInMispour(side) || side.hitCooldown > 0) {
+      // Dirty pour: one splash, no credit — wait for a clean window.
+      if (pour.spillFlash <= 0) {
+        pour.spillFlash = 0.55;
+        state.shockwaves.push({ x: pour.x, y: pour.y, radius: 4, max: 36, life: .28, color: '#ff4fa3' });
+        burstParticles(pour.x, pour.y, '#ff4fa3', 10, 110);
+      }
+      continue;
+    }
+    pour.filled = true;
+    side.cleanPourCount += 1;
+    state.score += 60;
+    state.energy = Math.min(MAX_ENERGY, state.energy + 4);
+    state.lastStraw = Math.min(state.maxStraw, state.lastStraw + 6);
+    state.shockwaves.push({ x: pour.x, y: pour.y, radius: 6, max: 64, life: .45, color: '#7ad4ff' });
+    burstParticles(pour.x, pour.y, '#7ad4ff', 22, 180);
+    sound('collect'); vibrate(12);
+    if (side.cleanPourCount >= side.pours.length && !side.guestReceipt.unlocked) {
+      side.guestReceipt.unlocked = true;
+      announce("Guest receipt ready.");
+    }
+  }
+
+  const guest = side.guestReceipt;
+  if (guest.unlocked && !guest.collected && Math.hypot(side.x - guest.x, side.y - 45 - guest.y) < 44) {
+    guest.collected = true;
+    state.score += 200;
+    state.energy = Math.min(MAX_ENERGY, state.energy + 10);
+    state.lastStraw = Math.min(state.maxStraw, state.lastStraw + 12);
+    boss.defeated = true;
+    boss.mispour = null;
+    boss.phase = 'idle';
+    if (!side.sommelierAwarded) {
+      side.sommelierAwarded = true;
+      side.sommelierFlash = 1.8;
+      if (!state.campaign.mastered.includes('sommelier-speedrun')) {
+        state.campaign.mastered.push('sommelier-speedrun');
+      }
+      saveProgress('vineway-side-passage', 'vineway');
+    }
+    state.shockwaves.push({ x: guest.x, y: guest.y, radius: 12, max: 140, life: .8, color: '#ffcd54' });
+    burstParticles(guest.x, guest.y, '#ffcd54', 40, 240);
+    sound('clear'); vibrate([12, 24, 16]);
+    announce(guest.guestLine);
+  }
+}
+
 function updateSideview(dt) {
   const side = state.sideview;
   if (!side) return;
@@ -1771,6 +1970,7 @@ function updateSideview(dt) {
       if (state.whiningEnabled && side.assistFailures >= 2) triggerWhiningDemo();
     }
   }
+  updateSommelierSpeedrun(dt);
   if (!side.masteryAwarded && side.receiptCount === side.receipts.length && side.flyCount === side.flies.length) {
     side.masteryAwarded = true;
     side.masteryFlash = 1.8;
@@ -2821,6 +3021,118 @@ function drawTravelMap() {
   ctx.restore();
 }
 
+function drawFlyingCorkSprite(cork, muted = false) {
+  const alpha = muted ? 0.35 : 1;
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  ctx.translate(cork.x, cork.y);
+  ctx.rotate(cork.spin || 0);
+  ctx.shadowBlur = muted ? 0 : 16;
+  ctx.shadowColor = '#f0b96f';
+  const gradient = ctx.createLinearGradient(-18, 0, 18, 0);
+  gradient.addColorStop(0, '#7c3d1d'); gradient.addColorStop(0.35, '#d3914e');
+  gradient.addColorStop(0.65, '#f0b96f'); gradient.addColorStop(1, '#6b3018');
+  ctx.fillStyle = gradient; ctx.strokeStyle = '#3a1515'; ctx.lineWidth = 3;
+  ctx.beginPath(); ctx.roundRect(-22, -11, 44, 22, 8); ctx.fill(); ctx.stroke();
+  ctx.strokeStyle = 'rgba(75,30,20,.7)'; ctx.lineWidth = 1.8;
+  for (const line of [-12, 12]) { ctx.beginPath(); ctx.moveTo(line, -9); ctx.lineTo(line, 9); ctx.stroke(); }
+  ctx.restore();
+}
+
+function drawSidePour(pour) {
+  const bob = prefersReducedMotion ? 0 : Math.sin(state.time * 3.2 + pour.id) * 4;
+  const spill = pour.spillFlash || 0;
+  ctx.save();
+  ctx.translate(pour.x, pour.y + bob);
+  ctx.shadowBlur = pour.filled ? 18 : 10;
+  ctx.shadowColor = pour.filled ? '#7ad4ff' : spill > 0 ? '#ff4fa3' : '#fff8dc';
+  ctx.fillStyle = pour.filled ? '#7ad4ff' : 'rgba(255,248,220,.2)';
+  ctx.strokeStyle = pour.filled ? '#d9ff45' : spill > 0 ? '#ff4fa3' : '#fff8dc';
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(-16, -8); ctx.lineTo(-12, 18); ctx.lineTo(12, 18); ctx.lineTo(16, -8);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.beginPath(); ctx.ellipse(0, -8, 18, 7, 0, 0, Math.PI * 2); ctx.stroke();
+  if (pour.filled) {
+    ctx.fillStyle = '#ff5aa9';
+    ctx.beginPath(); ctx.ellipse(0, 4, 9, 5, 0, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.restore();
+}
+
+function drawGuestReceipt(receipt) {
+  if (!receipt.unlocked || receipt.collected) return;
+  const bob = prefersReducedMotion ? 0 : Math.sin(state.time * 3.6) * 5;
+  ctx.save();
+  ctx.translate(receipt.x, receipt.y + bob);
+  ctx.rotate(-0.08 + Math.sin(state.time * 2) * .03);
+  ctx.shadowBlur = 28; ctx.shadowColor = '#ffcd54';
+  ctx.fillStyle = '#fff6d0'; ctx.strokeStyle = '#ffcd54'; ctx.lineWidth = 3.5;
+  ctx.beginPath();
+  ctx.moveTo(-22, -26); ctx.lineTo(22, -26); ctx.lineTo(19, 24);
+  ctx.lineTo(10, 18); ctx.lineTo(3, 26); ctx.lineTo(-4, 18); ctx.lineTo(-11, 26); ctx.lineTo(-20, 20);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#6a286f';
+  ctx.font = '1000 11px Inter, system-ui, sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('GUEST', 0, -8);
+  ctx.fillStyle = '#ff4fa3';
+  ctx.beginPath(); ctx.arc(0, 8, 4, 0, Math.PI * 2); ctx.fill();
+  ctx.restore();
+}
+
+function drawCorkPopper(boss) {
+  if (boss.defeated) return;
+  const bob = prefersReducedMotion ? 0 : Math.sin(state.time * 2.6) * 6;
+  const charging = boss.mispour?.phase === 'telegraph';
+  const firing = boss.mispour?.phase === 'danger';
+  ctx.save();
+  ctx.translate(boss.x, boss.y + bob);
+  ctx.shadowBlur = charging || firing ? 26 : 12;
+  ctx.shadowColor = firing ? '#ff5aa9' : charging ? '#ffcd54' : '#c78af1';
+  // Body silhouette — oversized cork-popper / bottle shape.
+  ctx.fillStyle = '#4a1d63';
+  ctx.strokeStyle = firing ? '#ff5aa9' : '#d9ff45';
+  ctx.lineWidth = 5;
+  ctx.beginPath();
+  ctx.moveTo(-28, 36); ctx.quadraticCurveTo(-40, 0, -22, -34);
+  ctx.lineTo(22, -34); ctx.quadraticCurveTo(40, 0, 28, 36); ctx.closePath();
+  ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#f0b96f';
+  ctx.beginPath(); ctx.roundRect(-14, -52, 28, 22, 7); ctx.fill();
+  ctx.strokeStyle = '#3a1515'; ctx.lineWidth = 3; ctx.stroke();
+  // Face marks readable without text.
+  ctx.fillStyle = firing ? '#ff5aa9' : '#fff8dc';
+  ctx.beginPath(); ctx.arc(-10, -8, 5, 0, Math.PI * 2); ctx.arc(10, -8, 5, 0, Math.PI * 2); ctx.fill();
+  ctx.strokeStyle = '#fff8dc'; ctx.lineWidth = 3; ctx.lineCap = 'round';
+  ctx.beginPath();
+  if (charging) { ctx.arc(0, 8, 10, 0.15, Math.PI - 0.15); }
+  else if (firing) { ctx.moveTo(-10, 12); ctx.lineTo(10, 12); }
+  else { ctx.arc(0, 6, 9, 0.2, Math.PI - 0.2); }
+  ctx.stroke();
+  ctx.restore();
+
+  if (boss.mispour) {
+    const zone = boss.mispour;
+    const danger = zone.phase === 'danger';
+    const pulse = 1 + Math.sin(state.time * (danger ? 14 : 7)) * (danger ? 0.08 : 0.04);
+    ctx.save();
+    ctx.translate(zone.x, zone.y);
+    ctx.scale(pulse, pulse * 0.55);
+    ctx.globalAlpha = danger ? 0.55 : 0.38;
+    ctx.fillStyle = danger ? '#ff5aa9' : '#ffcd54';
+    ctx.strokeStyle = danger ? '#fff8dc' : '#ff8f3f';
+    ctx.lineWidth = danger ? 6 : 4;
+    ctx.shadowBlur = 22; ctx.shadowColor = ctx.fillStyle;
+    ctx.beginPath(); ctx.arc(0, 0, zone.radius, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    // Inner ring telegraph — readable without text.
+    ctx.globalAlpha = danger ? 0.85 : 0.7;
+    ctx.beginPath(); ctx.arc(0, 0, Math.max(8, zone.radius * 0.55), 0, Math.PI * 2); ctx.stroke();
+    ctx.restore();
+  }
+}
+
 function drawSideview() {
   const side = state.sideview;
   if (!side) return;
@@ -2889,7 +3201,12 @@ function drawSideview() {
   }
   const sideSpeed = Math.hypot(side.vx, side.vy);
   for (const fly of side.flies) drawSideFly(fly, sideSpeed);
+  for (const cork of side.corks || []) if (!cork.defeated) drawFlyingCorkSprite(cork);
+  for (const cork of side.flyingCorks || []) drawFlyingCorkSprite(cork);
+  for (const pour of side.pours || []) drawSidePour(pour);
+  if (side.corkPopper) drawCorkPopper(side.corkPopper);
   for (const receipt of side.receipts) drawSideReceipt(receipt);
+  if (side.guestReceipt) drawGuestReceipt(side.guestReceipt);
   if (side.assistDemo > 0 && side.assistVineIndex !== null) {
     const vine = sideviewDefinition.vines[side.assistVineIndex];
     const loop = ((4.4 - side.assistDemo) % 2.2) / 2.2;
@@ -2965,6 +3282,16 @@ function drawSideview() {
     ctx.fillStyle = defeated ? '#ffcd54' : 'rgba(255,79,163,.45)'; ctx.beginPath(); ctx.arc(x, 3, 4, 0, Math.PI * 2); ctx.fill();
   }
   ctx.restore();
+  ctx.save(); ctx.translate(side.cameraX + 275, 112);
+  for (let index = 0; index < (side.pours || []).length; index += 1) {
+    const filled = side.pours[index].filled;
+    const x = index * 22;
+    ctx.fillStyle = filled ? '#7ad4ff' : 'rgba(255,248,220,.22)';
+    ctx.strokeStyle = filled ? '#d9ff45' : 'rgba(255,248,220,.45)';
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(x - 7, -4); ctx.lineTo(x - 5, 8); ctx.lineTo(x + 5, 8); ctx.lineTo(x + 7, -4); ctx.closePath(); ctx.fill(); ctx.stroke();
+  }
+  ctx.restore();
   if (side.masteryFlash > 0) {
     const life = clamp(side.masteryFlash / 1.8, 0, 1);
     const bounce = 1 + Math.sin((1 - life) * Math.PI * 3) * .08 * life;
@@ -2972,6 +3299,16 @@ function drawSideview() {
     ctx.globalAlpha = Math.min(1, life * 2); ctx.fillStyle = '#ffcd54'; ctx.strokeStyle = '#32143f'; ctx.lineWidth = 5;
     ctx.shadowBlur = 30; ctx.shadowColor = '#ffcd54';
     ctx.beginPath(); ctx.moveTo(-42, -18); ctx.lineTo(-18, 4); ctx.lineTo(0, -30); ctx.lineTo(18, 4); ctx.lineTo(42, -18); ctx.lineTo(34, 25); ctx.lineTo(-34, 25); ctx.closePath(); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+  if (side.sommelierFlash > 0) {
+    const life = clamp(side.sommelierFlash / 1.8, 0, 1);
+    ctx.save(); ctx.translate(side.cameraX + viewport.width / scale * .5, 248);
+    ctx.globalAlpha = Math.min(1, life * 2);
+    ctx.fillStyle = '#fff8dc'; ctx.strokeStyle = '#32143f'; ctx.lineWidth = 4;
+    ctx.font = '1000 20px Inter, system-ui, sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const line = side.guestReceipt?.guestLine || "Guest said 'notes of regret.'";
+    ctx.strokeText(line, 0, 0); ctx.fillText(line, 0, 0);
     ctx.restore();
   }
   drawParticles();

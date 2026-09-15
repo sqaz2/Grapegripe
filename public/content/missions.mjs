@@ -97,5 +97,23 @@ export const sideviewDefinition = Object.freeze({
     { x: 1850, y: 260, range: 105, phase: 2.1 },
     { x: 2460, y: 235, range: 92, phase: 4.3 },
   ],
+  // Sommelier Speedrun stunt layer: flying cork hazards, Cork-Popper mispour AOE, three clean pours → guest receipt.
+  corks: [
+    { x: 620, y: 295, range: 88, phase: 0.3 },
+    { x: 980, y: 255, range: 96, phase: 1.6 },
+    { x: 1410, y: 310, range: 84, phase: 2.7 },
+    { x: 1920, y: 270, range: 102, phase: 3.9 },
+  ],
+  corkPopper: { x: 2525, y: 265 },
+  pours: [
+    { x: 755, y: 328 },
+    { x: 1555, y: 318 },
+    { x: 2345, y: 302 },
+  ],
+  guestReceipt: {
+    x: 2710,
+    y: 395,
+    guestLine: "Guest said 'notes of regret.'",
+  },
   checkpoints: [110, 625, 1065, 1485, 1930, 2360, 2745],
 });

@@ -47,6 +47,15 @@ test('Vineway stunt mastery survives validation and reload', () => {
   assert.ok(loadSave(storage).campaign.mastered.includes('vineway-receipt-run'));
 });
 
+test('Sommelier Speedrun mastery survives validation and reload', () => {
+  const storage = memoryStorage();
+  const save = newSave();
+  save.campaign.mastered.push('sommelier-speedrun');
+  const stored = storeSave(save, storage);
+  assert.ok(stored.campaign.mastered.includes('sommelier-speedrun'));
+  assert.ok(loadSave(storage).campaign.mastered.includes('sommelier-speedrun'));
+});
+
 test('Whining preference and Aged Poorly rematch survive validation', () => {
   const save = newSave();
   save.preferences.whining = false;

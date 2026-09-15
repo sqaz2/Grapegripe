@@ -459,3 +459,68 @@ test('ranged and large enemies navigate around the real bridge gap without getti
     assert.ok(Math.hypot(enemy.x - g.state.hero.x, enemy.y - g.state.hero.y) < 225, `${type} stuck at ${enemy.x}, ${enemy.y}`);
   }
 });
+
+
+test('Press Pit tip channel carries the cork-popper aisle warning', async () => {
+  const g = await loadGame(); g.resetGame(); g.enterRegion(2);
+  Object.assign(g.state.hero, { x: 477, y: 1150 });
+  g.updateContextTarget(); g.useContextTarget();
+  assert.equal(g.state.mode, 'help');
+  assert.match(g.element('context-help-title').textContent, /Press Pit tip/i);
+  assert.match(
+    g.element('context-help-copy').textContent,
+    /the cork-popper in aisle 7 times your pours\. One wrong vintage and the whole tasting room goes feral\./,
+  );
+});
+
+test('Sommelier Speedrun: flying corks, mispour telegraph, three clean pours unlock guest receipt', async () => {
+  const storage = new Map([['grape-gripe-help-sideview-controls', 'seen']]);
+  const g = await loadGame({ storage }); g.resetGame(); g.enterRegion(1); g.startSideview();
+  const side = g.state.sideview;
+  assert.ok(side.corks.length >= 3);
+  assert.ok(side.corkPopper);
+  assert.equal(side.pours.length, 3);
+  assert.equal(side.guestReceipt.guestLine, "Guest said 'notes of regret.'");
+
+  // Ambient cork bounce on slow contact.
+  const cork = side.corks[0];
+  const nextTime = g.state.time + 1 / 60;
+  const corkX = cork.baseX + Math.sin(nextTime * 1.35 + cork.phase) * cork.range;
+  const corkY = cork.baseY + Math.cos(nextTime * 2.1 + cork.phase) * 18;
+  Object.assign(side, { x: corkX, y: corkY + 45, vx: 0, vy: 0, grounded: false, hitCooldown: 0 });
+  g.update(1 / 60);
+  assert.equal(cork.defeated, false);
+  assert.ok(Math.abs(side.vx) >= 200, 'slow cork contact should knock the hero back');
+
+  // Cork-Popper charges a readable mispour telegraph into a danger zone.
+  side.hitCooldown = 0;
+  Object.assign(side, { x: side.corkPopper.x - 40, y: 505, vx: 0, vy: 0 });
+  side.corkPopper.phase = 'idle';
+  side.corkPopper.timer = 0;
+  side.corkPopper.mispour = null;
+  g.update(1 / 60);
+  assert.equal(side.corkPopper.mispour?.phase, 'telegraph');
+  assert.ok(side.corkPopper.mispour.radius < side.corkPopper.mispour.maxRadius);
+  // Finish charge → danger + flying cork projectiles.
+  side.corkPopper.mispour.charge = 0.001;
+  g.update(1 / 60);
+  assert.equal(side.corkPopper.mispour?.phase, 'danger');
+  assert.ok(side.flyingCorks.length >= 2, 'mispour should launch flying corks');
+
+  // Three clean pours unlock the guest receipt; collecting it persists mastery + guest line.
+  side.corkPopper.mispour = null;
+  side.hitCooldown = 0;
+  for (const pour of side.pours) {
+    Object.assign(side, { x: pour.x, y: pour.y + 45, vx: 0, vy: 0, hitCooldown: 0 });
+    g.update(1 / 60);
+    assert.equal(pour.filled, true, `pour ${pour.id} should fill cleanly`);
+  }
+  assert.equal(side.cleanPourCount, 3);
+  assert.equal(side.guestReceipt.unlocked, true);
+  Object.assign(side, { x: side.guestReceipt.x, y: side.guestReceipt.y + 45, vx: 0, vy: 0, hitCooldown: 0 });
+  g.update(1 / 60);
+  assert.equal(side.guestReceipt.collected, true);
+  assert.ok(g.state.campaign.mastered.includes('sommelier-speedrun'));
+  assert.equal(side.guestReceipt.guestLine, "Guest said 'notes of regret.'");
+  assert.equal(side.corkPopper.defeated, true);
+});

@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { Terrain } from '../public/engine/terrain.mjs';
 import { terrainDefinitions } from '../public/engine/terrain-data.mjs';
 import { missionDefinitions, sideviewDefinition } from '../public/content/missions.mjs';
@@ -38,4 +40,30 @@ test('side-view route has forgiving ground gaps, upper ledges and reachable swin
     assert.ok(fly.x - fly.range > 0 && fly.x + fly.range < sideviewDefinition.width);
     assert.ok(fly.y > 100 && fly.y < sideviewDefinition.floor - 150);
   }
+});
+
+
+test('Sommelier Speedrun content wires corks, Cork-Popper, pours and guest receipt', () => {
+  assert.ok(sideviewDefinition.corks.length >= 3);
+  assert.ok(sideviewDefinition.corkPopper?.x > 2000);
+  assert.equal(sideviewDefinition.pours.length, 3);
+  assert.equal(sideviewDefinition.guestReceipt.guestLine, "Guest said 'notes of regret.'");
+  for (const cork of sideviewDefinition.corks) {
+    assert.ok(cork.x > 0 && cork.x < sideviewDefinition.width);
+    assert.ok(cork.y > 80 && cork.y < sideviewDefinition.floor - 80);
+  }
+  for (const pour of sideviewDefinition.pours) {
+    assert.ok(pour.x > 0 && pour.x < sideviewDefinition.width);
+    assert.ok(pour.y > 80 && pour.y < sideviewDefinition.floor - 80);
+  }
+  assert.ok(sideviewDefinition.guestReceipt.x < sideviewDefinition.width);
+});
+
+test('exact Sommelier flavor strings ship in the tip and receipt channels', () => {
+  const root = resolve(import.meta.dirname, '..');
+  const journey = readFileSync(resolve(root, 'public/journey.js'), 'utf8');
+  const missions = readFileSync(resolve(root, 'public/content/missions.mjs'), 'utf8');
+  assert.ok(journey.includes("Press Pit tip: the cork-popper in aisle 7 times your pours. One wrong vintage and the whole tasting room goes feral."));
+  assert.ok(missions.includes("Guest said 'notes of regret.'"));
+  assert.ok(journey.includes("Guest said 'notes of regret.'"));
 });
