@@ -1,5 +1,9 @@
 # Character animation: honest asset status
 
+## StarMuff character continuity
+
+The player keeps their first-spawn character when traveling to another game. The current grape atlas remains the supported native Grape Gripe character; it is not a fallback to silently apply to other visitors. Future avatar adapters need matching top-down and side-view poses, foot anchors and action clips before travel is enabled for that avatar. Keep character artwork generated and consistent with the user's established visual direction. See UNIVERSE-SCOPE.md and SOL-NEXT.md for the integration order.
+
 The old renderer had three still illustrations with bobbing and rotation. This pass adds a replaceable walking atlas and a real distance-driven animation controller. It is an improvement in motion and grounding, but it is **not a production-complete animation set**.
 
 ## Included asset
@@ -31,5 +35,7 @@ A second 4×4 action-sheet experiment was deliberately rejected from the release
 Do not repeatedly generate the same large sprite sheet when the model fails at alternating anatomy. The earlier research's stronger long-term approach is a reusable rig, with the same animations rendered into directional atlases or shown through a tested real-time renderer. That decision still needs a controlled phone comparison; this pass does not introduce a 3D engine.
 
 ## Acceptance viewing
+
+September 9 repair attempt: three targeted six-pose strips were generated separately for southwest, west and northwest. All were rejected. They contained opaque checkerboard pixels and still repeated the leading boot; the west candidate also drifted into a three-quarter view. None replaced the existing atlas. The required next delivery is an authored pose/rig pass with visible opposite-foot contacts, not another uninspected generated sheet.
 
 View each direction separately over both light and dark floor, then move continuously through all eight directions at gameplay size. Check a slow walk, a normal walk, wall pushing, stop/start, a dash and an attack during movement. Foot alternation must be obvious without zooming in. The numerical unit tests validate frame selection and timing, not the quality or anatomy of these pictures.
