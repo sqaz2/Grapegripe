@@ -2,7 +2,7 @@ import { objectiveIds } from '../content/campaign.mjs';
 import { endingDefinitions, eligibleEnding } from '../content/endings.mjs';
 
 export const WORLD_ID = 'grapegripe';
-export const masteryIds = Object.freeze(['sourling', 'moth', 'brute', 'boss', 'vineway-receipt-run', 'sommelier-speedrun', 'tipplers-receipt']);
+export const masteryIds = Object.freeze(['sourling', 'moth', 'brute', 'boss', 'vineway-receipt-run', 'sommelier-speedrun', 'tipplers-receipt', 'corkscrew-curfew']);
 const token = (value) => typeof value === 'string' && /^[a-zA-Z0-9:_-]{1,100}$/.test(value);
 const knownList = (value, allowed) => [...new Set((Array.isArray(value) ? value : []).filter((id) => allowed.includes(id)))];
 

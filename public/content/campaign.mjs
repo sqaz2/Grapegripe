@@ -45,6 +45,8 @@ export const campaignChapters = Object.freeze([
       { id: 'press-tippler-receipt', kind: 'clue', target: 'press-tippler-receipt', requires: ['press-cork-found'], optional: true },
       { id: 'press-tippler-rat', kind: 'encounter', target: 'press-tippler-rat', requires: ['press-tippler-receipt'], optional: true },
       { id: 'press-tippler-snack', kind: 'rescue', target: 'press-tippler-snack', requires: ['press-tippler-rat'], optional: true },
+      // Optional Corkscrew Curfew: peel sticky curfew waiver → Vineway bounce stunt mastery.
+      { id: 'press-curfew-receipt', kind: 'clue', target: 'press-curfew-receipt', requires: ['press-cork-found'], optional: true },
   ],
   },
   {

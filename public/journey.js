@@ -245,6 +245,11 @@ const contextHelpDefinitions = Object.freeze({
     copy: 'A Vineway barista stamped your glass with "notes of unpaid overtime" and the cork rolled straight into the Press Pit. Companion side-eyes the spill like you planned it.',
     announcement: 'A Vineway barista stamped your glass with "notes of unpaid overtime" and the cork rolled straight into the Press Pit.',
   },
+  'corkscrew-curfew': {
+    title: 'Press Pit tip',
+    copy: 'CURFEW WAIVER // SIGNED IN INVISIBLE INK // HOLD PHONE TO BLACKLIGHT LAMP IN CELLAR B. Bounce the stolen corkscrew off the velvet rope into the emergency cork-pop lever before the vinegar fog fills.',
+    announcement: 'CURFEW WAIVER // SIGNED IN INVISIBLE INK // HOLD PHONE TO BLACKLIGHT LAMP IN CELLAR B.',
+  },
 });
 
 function clamp(value, min, max) {
@@ -855,6 +860,25 @@ function startSideview() {
     },
     sommelierAwarded: state.campaign.mastered.includes('sommelier-speedrun'),
     sommelierFlash: 0,
+    curfewActive: objectiveComplete('press-curfew-receipt') || state.campaign.mastered.includes('corkscrew-curfew'),
+    curfewWon: state.campaign.mastered.includes('corkscrew-curfew'),
+    curfewFlash: 0,
+    velvetRope: sideviewDefinition.velvetRope ? { ...sideviewDefinition.velvetRope } : null,
+    stolenCorkscrew: sideviewDefinition.stolenCorkscrew ? {
+      x: sideviewDefinition.stolenCorkscrew.x,
+      y: sideviewDefinition.stolenCorkscrew.y,
+      vx: 0, vy: 0, spinning: false, lodged: false, spin: 0,
+    } : null,
+    corkPopLever: sideviewDefinition.corkPopLever ? {
+      x: sideviewDefinition.corkPopLever.x,
+      y: sideviewDefinition.corkPopLever.y,
+      pulled: state.campaign.mastered.includes('corkscrew-curfew'),
+    } : null,
+    vinegarFog: sideviewDefinition.vinegarFog ? {
+      fillSeconds: sideviewDefinition.vinegarFog.fillSeconds,
+      elapsed: 0,
+      cleared: state.campaign.mastered.includes('corkscrew-curfew'),
+    } : null,
   };
   state.contextTarget = null;
   attackButton.classList.remove('is-context');
@@ -862,7 +886,9 @@ function startSideview() {
   showGameControls(true);
   mapButton.hidden = true;
   companionButton.disabled = true;
-  announce('Sommelier Speedrun. Keep moving toward the light.');
+  announce(state.sideview.curfewActive && !state.sideview.curfewWon
+    ? 'Corkscrew Curfew: bounce the stolen corkscrew off the velvet rope into the lever before vinegar fog.'
+    : 'Sommelier Speedrun. Keep moving toward the light.');
   showContextHelp('sideview-controls');
 }
 
@@ -893,6 +919,15 @@ function useContextTarget() {
     state.carried = null;
     completeObjective(prop.objectiveId, { x: prop.x, y: prop.y, score: 90, energy: 6, anchorId: 'press-cork' });
     return true;
+  }
+  if (prop.kind === 'clue-curfew') {
+    const changed = completeObjective(prop.objectiveId, { x: prop.x, y: prop.y, score: 70, energy: 5, straw: 8 });
+    if (changed) {
+      state.clueReaction = { kind: prop.kind, until: state.time + 2.6 };
+      if (!showContextHelp('corkscrew-curfew')) announce('CURFEW WAIVER // SIGNED IN INVISIBLE INK // HOLD PHONE TO BLACKLIGHT LAMP IN CELLAR B.');
+      announce('Curfew waiver peeled. Vineway velvet-rope stunt unlocked.');
+    }
+    return changed;
   }
   if (prop.kind === 'clue-receipt') {
     const changed = completeObjective(prop.objectiveId, { x: prop.x, y: prop.y, score: 70, energy: 5, straw: 8 });
@@ -1700,6 +1735,94 @@ function launchFlyingCork(side, origin, targetX, targetY, speed = 220) {
   });
 }
 
+
+function updateCorkscrewCurfew(dt) {
+  const side = state.sideview;
+  if (!side?.curfewActive || !side.stolenCorkscrew || !side.velvetRope || !side.corkPopLever || !side.vinegarFog) return;
+  side.curfewFlash = Math.max(0, side.curfewFlash - dt);
+  const cork = side.stolenCorkscrew;
+  const rope = side.velvetRope;
+  const lever = side.corkPopLever;
+  const fog = side.vinegarFog;
+
+  if (!side.curfewWon && !fog.cleared) {
+    fog.elapsed += dt;
+    if (fog.elapsed >= fog.fillSeconds && !cork.lodged) {
+      // Vinegar fog closes the stunt — bounce the hero and reset the corkscrew.
+      if (side.hitCooldown <= 0 && side.x > rope.x - 200 && side.x < lever.x + 120) {
+        bounceSideHero(side, side.x, side.y - 40, '#9acd32');
+        announce('Vinegar fog filled the aisle. Steal the corkscrew and try again.');
+      }
+      fog.elapsed = 0;
+      Object.assign(cork, {
+        x: sideviewDefinition.stolenCorkscrew.x,
+        y: sideviewDefinition.stolenCorkscrew.y,
+        vx: 0, vy: 0, spinning: false, lodged: false, spin: 0,
+      });
+      lever.pulled = false;
+    }
+  }
+
+  // Dash/fast contact launches the resting corkscrew toward the velvet rope.
+  if (!cork.spinning && !cork.lodged && side.hitCooldown <= 0) {
+    const near = Math.hypot(side.x - cork.x, side.y - 45 - cork.y) < 42;
+    const fast = Math.hypot(side.vx, side.vy) >= 240 || side.dashTime > 0;
+    if (near && fast) {
+      cork.spinning = true;
+      cork.vx = Math.max(320, Math.abs(side.vx) + 180) * (side.direction || 1);
+      cork.vy = -220;
+      cork.spin = 0;
+      sound('heavy'); vibrate(6);
+      burstParticles(cork.x, cork.y, '#c4a484', 14, 140);
+    }
+  }
+
+  if (cork.spinning && !cork.lodged) {
+    cork.x += cork.vx * dt;
+    cork.y += cork.vy * dt;
+    cork.vy += 420 * dt;
+    cork.spin += dt * 10;
+    // Bounce off velvet rope into the lever lane.
+    const ropeHit = cork.x >= rope.x - rope.width && cork.x <= rope.x + rope.width
+      && cork.y >= rope.y - rope.height && cork.y <= rope.y + 20;
+    if (ropeHit && cork.vx > 0) {
+      cork.vx = Math.abs(cork.vx) * 0.85 + 60;
+      cork.vy = -Math.abs(cork.vy) * 0.55 - 120;
+      cork.x = rope.x + rope.width + 8;
+      state.shockwaves.push({ x: rope.x, y: rope.y - rope.height * 0.4, radius: 4, max: 36, life: .28, color: '#ff4fa3' });
+      sound('secret');
+    }
+    // Floor settle — miss, reset to rest near spawn.
+    if (cork.y > 520) {
+      Object.assign(cork, {
+        x: sideviewDefinition.stolenCorkscrew.x,
+        y: sideviewDefinition.stolenCorkscrew.y,
+        vx: 0, vy: 0, spinning: false, lodged: false, spin: 0,
+      });
+    }
+    // Hit emergency cork-pop lever.
+    if (Math.hypot(cork.x - lever.x, cork.y - lever.y) < 36) {
+      cork.lodged = true;
+      cork.spinning = false;
+      cork.vx = 0; cork.vy = 0;
+      cork.x = lever.x; cork.y = lever.y;
+      lever.pulled = true;
+      fog.cleared = true;
+      side.curfewWon = true;
+      side.curfewFlash = 1.8;
+      state.score += 160;
+      state.shockwaves.push({ x: lever.x, y: lever.y, radius: 8, max: 90, life: .5, color: '#d9ff45' });
+      burstParticles(lever.x, lever.y, '#d9ff45', 24, 200);
+      sound('secret'); vibrate(18);
+      if (!state.campaign.mastered.includes('corkscrew-curfew')) {
+        state.campaign.mastered.push('corkscrew-curfew');
+        saveProgress('vineway-side-passage', 'vineway');
+      }
+      announce('Emergency cork-pop lever hit. Curfew waived — vinegar fog clearing.');
+    }
+  }
+}
+
 function updateSommelierSpeedrun(dt) {
   const side = state.sideview;
   if (!side?.corkPopper) return;
@@ -2016,6 +2139,7 @@ function updateSideview(dt) {
     }
   }
   updateSommelierSpeedrun(dt);
+  updateCorkscrewCurfew(dt);
   if (!side.masteryAwarded && side.receiptCount === side.receipts.length && side.flyCount === side.flies.length) {
     side.masteryAwarded = true;
     side.masteryFlash = 1.8;
@@ -2444,14 +2568,14 @@ function drawMissionProps() {
       } else if (prop.kind === 'clue-read') {
         ctx.beginPath(); ctx.roundRect(-17, -23, 34, 46, 4); ctx.stroke();
         for (const y of [-10, 1, 12]) { ctx.beginPath(); ctx.moveTo(-9, y); ctx.lineTo(10, y); ctx.stroke(); }
-      } else if (prop.kind === 'clue-receipt') {
-        ctx.fillStyle = done ? 'rgba(217,255,69,.3)' : '#fff4d2';
-        ctx.strokeStyle = clueColor; ctx.lineWidth = 4;
+      } else if (prop.kind === 'clue-receipt' || prop.kind === 'clue-curfew') {
+        ctx.fillStyle = done ? 'rgba(217,255,69,.3)' : (prop.kind === 'clue-curfew' ? '#e8fff0' : '#fff4d2');
+        ctx.strokeStyle = prop.kind === 'clue-curfew' ? '#9acd32' : clueColor; ctx.lineWidth = 4;
         ctx.beginPath(); ctx.roundRect(-22, -28, 44, 56, 5); ctx.fill(); ctx.stroke();
         ctx.strokeStyle = '#6b3018'; ctx.lineWidth = 2.5;
         for (const y of [-14, -4, 6, 16]) { ctx.beginPath(); ctx.moveTo(-12, y); ctx.lineTo(y === 6 ? 4 : 12, y); ctx.stroke(); }
-        // Fake vintage barcode strip
-        ctx.fillStyle = '#32143f';
+        // Fake vintage barcode strip / blacklight mark
+        ctx.fillStyle = prop.kind === 'clue-curfew' ? '#2f5d34' : '#32143f';
         for (let i = 0; i < 7; i += 1) {
           const w = i % 2 ? 2 : 3.5;
           ctx.fillRect(-14 + i * 4.2, 18, w, 10);
@@ -2845,11 +2969,11 @@ function drawCompanion() {
     ctx.beginPath(); ctx.arc(18, -35, 22, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(6, -20); ctx.lineTo(2, -8); ctx.lineTo(17, -18); ctx.fill();
     ctx.fillStyle = state.clueReaction.kind === 'clue-wanted' || state.clueReaction.kind === 'tippler-snack' ? '#ff5aa9'
-      : state.clueReaction.kind === 'clue-receipt' ? '#6b3018' : '#502064';
+      : state.clueReaction.kind === 'clue-receipt' || state.clueReaction.kind === 'clue-curfew' ? '#6b3018' : '#502064';
     ctx.font = '1000 22px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
     const glyph = state.clueReaction.kind === 'clue-seen' ? '●'
       : state.clueReaction.kind === 'clue-read' ? '≡'
-      : state.clueReaction.kind === 'clue-receipt' ? '◔'
+      : state.clueReaction.kind === 'clue-receipt' || state.clueReaction.kind === 'clue-curfew' ? '◔'
       : state.clueReaction.kind === 'tippler-snack' ? '♥' : '♥';
     ctx.fillText(glyph, 18, -35);
   }
@@ -3102,6 +3226,71 @@ function drawTravelMap() {
   ctx.restore();
 }
 
+
+function drawCorkscrewCurfew(side) {
+  if (!side?.curfewActive) return;
+  const rope = side.velvetRope;
+  const cork = side.stolenCorkscrew;
+  const lever = side.corkPopLever;
+  const fog = side.vinegarFog;
+  if (rope) {
+    ctx.save();
+    ctx.strokeStyle = '#ff4fa3'; ctx.lineWidth = 7; ctx.lineCap = 'round';
+    ctx.shadowBlur = 12; ctx.shadowColor = '#ff4fa3';
+    ctx.beginPath();
+    ctx.moveTo(rope.x, rope.y);
+    ctx.lineTo(rope.x, rope.y - rope.height);
+    ctx.stroke();
+    // Soft velvet posts
+    ctx.fillStyle = '#5a1840';
+    ctx.fillRect(rope.x - 10, rope.y - 8, 20, 16);
+    ctx.fillRect(rope.x - 10, rope.y - rope.height - 8, 20, 16);
+    ctx.restore();
+  }
+  if (lever) {
+    ctx.save();
+    ctx.translate(lever.x, lever.y);
+    ctx.rotate(lever.pulled ? -0.55 : 0.15);
+    ctx.fillStyle = lever.pulled ? '#d9ff45' : '#c45c2a';
+    ctx.strokeStyle = '#fff8dc'; ctx.lineWidth = 3;
+    ctx.fillRect(-8, -34, 16, 48);
+    ctx.strokeRect(-8, -34, 16, 48);
+    ctx.beginPath(); ctx.arc(0, -40, 10, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.restore();
+  }
+  if (cork) {
+    ctx.save();
+    ctx.translate(cork.x, cork.y);
+    ctx.rotate(cork.spin || 0);
+    ctx.fillStyle = '#c4a484'; ctx.strokeStyle = '#6b3018'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.ellipse(0, 0, 16, 9, 0, 0, Math.PI * 2); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#8b5a2b';
+    ctx.fillRect(-3, -18, 6, 14); // worm screw
+    ctx.restore();
+  }
+  if (fog && !fog.cleared && side.curfewActive && !side.curfewWon) {
+    const fill = Math.min(1, fog.elapsed / fog.fillSeconds);
+    ctx.save();
+    ctx.fillStyle = `rgba(154, 205, 50, ${0.12 + fill * 0.45})`;
+    const top = 40 + (1 - fill) * 420;
+    ctx.fillRect(side.cameraX - 40, top, 900, 700);
+    ctx.fillStyle = '#9acd32';
+    ctx.font = '700 16px system-ui';
+    ctx.fillText(`Vinegar fog ${Math.max(0, fog.fillSeconds - fog.elapsed).toFixed(1)}s`, side.cameraX + 24, top + 28);
+    ctx.restore();
+  }
+  if (side.curfewFlash > 0) {
+    const life = Math.min(1, side.curfewFlash / 1.8);
+    ctx.save();
+    ctx.globalAlpha = life;
+    ctx.fillStyle = '#d9ff45';
+    ctx.font = '1000 28px system-ui';
+    ctx.textAlign = 'center';
+    ctx.fillText('CURFEW WAIVED', side.x, side.y - 120);
+    ctx.restore();
+  }
+}
+
 function drawFlyingCorkSprite(cork, muted = false) {
   const alpha = muted ? 0.35 : 1;
   ctx.save();
@@ -3284,6 +3473,7 @@ function drawSideview() {
   for (const fly of side.flies) drawSideFly(fly, sideSpeed);
   for (const cork of side.corks || []) if (!cork.defeated) drawFlyingCorkSprite(cork);
   for (const cork of side.flyingCorks || []) drawFlyingCorkSprite(cork);
+  drawCorkscrewCurfew(side);
   for (const pour of side.pours || []) drawSidePour(pour);
   if (side.corkPopper) drawCorkPopper(side.corkPopper);
   for (const receipt of side.receipts) drawSideReceipt(receipt);

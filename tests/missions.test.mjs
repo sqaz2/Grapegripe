@@ -85,3 +85,17 @@ test('Press Pit Tippler Receipt props sit on floor and chain from the cork', () 
   }
   assert.ok(terrain.contains({ x: rat.position[0], y: rat.position[1] }, 28), 'tippler rat');
 });
+
+
+test('Corkscrew Curfew props wire Press Pit receipt and Vineway bounce targets', () => {
+  const terrain = new Terrain(terrainDefinitions.press);
+  const press = missionDefinitions.press;
+  const receipt = press.props.find((prop) => prop.id === 'press-curfew-receipt');
+  assert.ok(receipt);
+  assert.equal(receipt.kind, 'clue-curfew');
+  assert.ok(terrain.contains({ x: receipt.position[0], y: receipt.position[1] }, 14), 'curfew receipt');
+  assert.ok(sideviewDefinition.velvetRope?.x > 0);
+  assert.ok(sideviewDefinition.stolenCorkscrew?.x > 0);
+  assert.ok(sideviewDefinition.corkPopLever?.x > sideviewDefinition.velvetRope.x);
+  assert.ok(sideviewDefinition.vinegarFog?.fillSeconds > 0);
+});

@@ -579,3 +579,59 @@ test('Tippler Receipt peels into a side room, Tippler Rat, and companion-trust s
 
   assert.ok(g.state.campaign.mastered.includes('tipplers-receipt'));
 });
+
+
+test('Corkscrew Curfew receipt peels waiver and unlocks Vineway bounce stunt', async () => {
+  const storage = new Map();
+  const g = await loadGame({ storage });
+  g.resetGame();
+  g.enterRegion(2);
+  assert.equal(g.completeObjective('press-cork-found'), true);
+  const receipt = g.state.mission.props.find((prop) => prop.kind === 'clue-curfew');
+  assert.ok(receipt);
+  Object.assign(g.state.hero, { x: receipt.x, y: receipt.y });
+  g.updateContextTarget();
+  assert.equal(g.state.contextTarget?.kind, 'clue-curfew');
+  assert.equal(g.useContextTarget(), true);
+  assert.ok(g.state.campaign.completed.includes('press-curfew-receipt'));
+  assert.equal(g.element('context-help-card').dataset.tip, 'corkscrew-curfew');
+  assert.match(g.element('context-help-copy').textContent, /CURFEW WAIVER/);
+  assert.match(g.element('context-help-copy').textContent, /BLACKLIGHT LAMP IN CELLAR B/);
+  g.dismissContextHelp();
+
+  g.enterRegion(1);
+  // Re-load sideview without the controls tip blocking updates.
+  g.dismissContextHelp();
+  g.startSideview();
+  if (g.state.mode === 'help') g.dismissContextHelp();
+  const side = g.state.sideview;
+  assert.equal(g.state.mode, 'sideview');
+  assert.equal(side.curfewActive, true);
+  assert.ok(side.velvetRope);
+  assert.ok(side.stolenCorkscrew);
+  assert.ok(side.corkPopLever);
+  assert.ok(side.vinegarFog);
+
+  // Dash into corkscrew → bounce off velvet rope → hit lever before fog.
+  const cork = side.stolenCorkscrew;
+  Object.assign(side, { x: cork.x - 10, y: cork.y + 45, vx: 400, vy: 0, dashTime: 0.2, hitCooldown: 0, direction: 1 });
+  g.update(1 / 60);
+  assert.equal(cork.spinning, true, 'fast contact should launch the stolen corkscrew');
+
+  // Simulate rope bounce then lever hit.
+  cork.x = side.velvetRope.x;
+  cork.y = side.velvetRope.y - 40;
+  cork.vx = 300;
+  cork.vy = -50;
+  g.update(1 / 60);
+  assert.ok(cork.vx > 0);
+  cork.x = side.corkPopLever.x;
+  cork.y = side.corkPopLever.y;
+  cork.spinning = true;
+  cork.lodged = false;
+  g.update(1 / 60);
+  assert.equal(side.corkPopLever.pulled, true);
+  assert.equal(side.curfewWon, true);
+  assert.equal(side.vinegarFog.cleared, true);
+  assert.ok(g.state.campaign.mastered.includes('corkscrew-curfew'));
+});

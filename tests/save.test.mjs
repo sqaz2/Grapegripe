@@ -207,3 +207,13 @@ test('Tippler Receipt mastery survives validation and reload', () => {
   assert.ok(stored.campaign.mastered.includes('tipplers-receipt'));
   assert.ok(loadSave(storage).campaign.mastered.includes('tipplers-receipt'));
 });
+
+
+test('Corkscrew Curfew mastery survives validation and reload', () => {
+  const storage = memoryStorage();
+  const save = newSave();
+  save.campaign.mastered.push('corkscrew-curfew');
+  const stored = storeSave(save, storage);
+  assert.ok(stored.campaign.mastered.includes('corkscrew-curfew'));
+  assert.ok(loadSave(storage).campaign.mastered.includes('corkscrew-curfew'));
+});
