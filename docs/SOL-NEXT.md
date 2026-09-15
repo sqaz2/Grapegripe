@@ -25,7 +25,7 @@ Acceptance: a complete adventure can be interrupted at every scene boundary and 
 
 ### 2. Finish the art and explanatory cues
 
-Use ART-HANDOFF.md for the remaining leg phases and authored swing/action/idle poses. Preserve generated character imagery and existing visual quality. Add a short visual sour-ground demonstration for Aged Poorly, with a safe warning interval and space to escape. Improve Whining's hold/pump/release explanation only if phone testing shows the ghost is unclear.
+Use ART-HANDOFF.md for the remaining leg phases and authored swing/action/idle poses. Sol Max #4 Part 1 ships a flipped walk-column remap for SW/W/NW contact frames (`walkColumn` in animation.mjs); it is not a finished atlas. Preserve generated character imagery and existing visual quality. Add a short visual sour-ground demonstration for Aged Poorly, with a safe warning interval and space to escape. Improve Whining's hold/pump/release explanation only if phone testing shows the ghost is unclear.
 
 Acceptance: all eight directions and side-view actions read at phone size; a player can learn the special move and sour-ground rule without text or sound. Do not call staged stills a finished action animation set.
 
