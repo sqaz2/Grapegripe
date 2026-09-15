@@ -1,3 +1,59 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#140f24"><title>Berry Beef · Grape Gripe</title><link rel="stylesheet" href="./berry-beef.css"></head>
-<body><main><canvas id="game" aria-label="Berry Beef platform arena. Arrow keys move, Space jumps, X attacks."></canvas><header><a href="./">← Journey</a><div><strong>BERRY BEEF</strong><span id="stage">The last spot on the fruit platter.</span></div><button id="sound" aria-pressed="true">Sound on</button><button id="pause" aria-label="Pause game">Ⅱ</button></header><section class="meters"><label>GRAPE <progress id="health" max="5" value="5"></progress></label><label>STRAWBERRY <progress id="rival-health" max="5" value="5"></progress></label></section><p id="callout" role="status">Loading the patch…</p><p id="rival-direction" aria-live="off"></p><div id="overlay"><article><small>GRAPE.GRIPE / A SIDE STORY</small><h1>Berry Beef</h1><p>“Raisins with an ego.”<br>That's what he called you.</p><p>Face the strawberry in three platform arenas. Jump his seed shots. When he lands a stomp, get close and hold HIT to fight back.</p><button id="start" disabled>Loading…</button><span>← → move · Space jump · X hit · Esc pause</span></article></div><nav class="controls" aria-label="Game controls"><div><button data-key="left" aria-label="Move left">◀</button><button data-key="right" aria-label="Move right">▶</button></div><div><button data-key="jump">JUMP</button><button data-key="hit" class="hit">HIT</button></div></nav></main><script type="module" src="./berry-beef.js"></script></body></html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#140f24">
+  <meta name="description" content="Berry Bliss — a wine-world platform brawler side mode. Same controls as the Grape Gripe journey.">
+  <title>Berry Bliss · Grape Gripe</title>
+  <link rel="stylesheet" href="./berry-beef.css">
+</head>
+<body>
+  <main>
+    <canvas id="game" aria-label="Berry Bliss platform brawler. Move with the left stick or WASD. Jump with up. Attack with Space. Dash with Shift. Same map as the main journey."></canvas>
+    <header>
+      <a href="./">← Journey</a>
+      <div>
+        <strong>BERRY BLISS</strong>
+        <span id="stage">Fruit-platter platform brawl</span>
+      </div>
+      <button id="sound" type="button" aria-pressed="true">Sound on</button>
+      <button id="pause" type="button" aria-label="Pause game">Ⅱ</button>
+    </header>
+    <section class="meters" aria-label="Stock and percent">
+      <label>GRAPE <span id="hero-stocks" class="stocks">●●●</span><progress id="hero-percent" max="200" value="0"></progress><em id="hero-pct-label">0%</em></label>
+      <label>STRAWBERRY <span id="rival-stocks" class="stocks">●●●</span><progress id="rival-percent" max="200" value="0"></progress><em id="rival-pct-label">0%</em></label>
+    </section>
+    <p id="callout" role="status">Loading the platter…</p>
+    <p id="rival-direction" aria-live="off"></p>
+    <div id="overlay">
+      <article>
+        <small>GRAPE.GRIPE / A SIDE STORY</small>
+        <h1>Berry Bliss</h1>
+        <p>“Raisins with an ego.” That’s what he called you — so the estate booked a fruit-platter brawl.</p>
+        <p>Platform-fighter feel: percent, knockback, aerials, and edge awareness. Wine-world satire only — no borrowed mascots.</p>
+        <p class="controls-legend">Same controls as the journey: stick / WASD · ↑ jump · Space attack · Shift dash · Esc pause</p>
+        <button id="start" type="button" disabled>Loading…</button>
+      </article>
+    </div>
+    <div id="joystick-zone" class="joystick-zone" aria-label="Movement control">
+      <div id="joystick-base" class="joystick-base" aria-hidden="true">
+        <svg viewBox="0 0 100 100"><path d="M50 9 40 22h20ZM91 50 78 40v20ZM50 91l10-13H40ZM9 50l13 10V40Z"></path></svg>
+        <div id="joystick-knob" class="joystick-knob"></div>
+      </div>
+    </div>
+    <div id="action-cluster" class="action-cluster" aria-label="Action controls">
+      <button id="dash-button" class="ability-button dash-button" type="button" aria-label="Dash">
+        <svg viewBox="0 0 64 64" aria-hidden="true"><path d="M10 42c11 0 18-5 25-15l5-7 14 2-7 12 8 5-15 5-6 10-8-4 4-9c-7 5-13 7-20 7Z"></path></svg>
+      </button>
+      <button id="attack-button" class="attack-button" type="button" aria-label="Attack">
+        <span class="attack-glow" aria-hidden="true"></span>
+        <svg class="attack-icon" viewBox="0 0 84 84" aria-hidden="true">
+          <path d="M22 58c-5-6-4-14 1-19l4-4V20c0-4 6-4 6 0v10-14c0-4 6-4 6 0v14-17c0-4 6-4 6 0v18-14c0-4 6-4 6 0v20l4-8c2-4 8-1 6 4l-7 17c-3 7-8 15-17 18-8 2-14-3-19-10Z"></path>
+        </svg>
+      </button>
+    </div>
+  </main>
+  <script type="module" src="./berry-beef.js"></script>
+</body>
+</html>
