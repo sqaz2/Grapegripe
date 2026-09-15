@@ -3,10 +3,10 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#1a1020" />
+    <meta name="theme-color" content="#140c1c" />
     <meta
       name="description"
-      content="Eutopia — a sealed tasting-estate prototype narrated by a Sommelier AI. Separate from the 2D Grape Gripe journey."
+      content="Eutopia — a Stanley Parable–style sealed tasting estate narrated by a Sommelier AI. Separate from the 2D Grape Gripe journey."
     />
     <title>Eutopia · Grape Gripe</title>
     <link rel="stylesheet" href="./eutopia.css" />
@@ -19,14 +19,15 @@
     </script>
   </head>
   <body>
-    <main id="shell" aria-label="Eutopia prototype">
-      <canvas id="view" aria-label="First-person lobby. Walk into the left or right door."></canvas>
+    <main id="shell" aria-label="Eutopia">
+      <canvas id="view" aria-label="First-person estate. Walk into the left or right door, or use the choice buttons."></canvas>
 
       <header class="topbar">
         <a href="../">← Journey</a>
         <div>
           <strong>EUTOPIA</strong>
           <span id="beat-title">The Sealed Estate</span>
+          <p id="path-log" class="path-log">Path: —</p>
         </div>
         <button id="restart" type="button">Restart</button>
       </header>
@@ -35,6 +36,7 @@
         <p class="eyebrow">Narrator Sommelier</p>
         <p id="narrator">…</p>
         <p id="instruction" class="instruction">…</p>
+        <p id="consequence" class="consequence">…</p>
         <button id="continue-narrator" type="button" hidden>Continue line ▸</button>
       </aside>
 
@@ -43,7 +45,7 @@
         <button id="door-right" type="button" class="forbidden">Forbidden (RIGHT) ▶</button>
       </nav>
 
-      <p class="hint">WASD / arrows move · Q/E or drag to turn · walk into a door or tap the buttons · Space advances lines</p>
+      <p class="hint">WASD / arrows move · Q/E or drag to turn · walk into a door or tap the buttons · Space advances narrator lines</p>
 
       <div id="boot" class="overlay">
         <article>
@@ -51,10 +53,13 @@
           <h1>Eutopia</h1>
           <p>
             A sealed “perfect tasting estate” run by a Narrator Sommelier.
-            You are the quality-control guest. Follow the script for a brochure ending —
-            or ignore it and watch the wine-world glitch.
+            You are the quality-control guest. Follow the script for laminated endings —
+            or ignore it and watch the wine-world rewrite the room.
           </p>
-          <p class="fine">Separate from the 2D Sol Max / Vineway campaign. Vertical slice only.</p>
+          <p class="fine">
+            Branchy choices with readable consequences. Separate from the 2D Sol Max / Vineway campaign.
+            Vertical slice with intentional stylization — not a beige prototype.
+          </p>
           <button id="start" type="button">Enter the estate</button>
         </article>
       </div>

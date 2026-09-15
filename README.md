@@ -32,7 +32,7 @@ Start with [the current universe scope](docs/UNIVERSE-SCOPE.md) and [Sol's next 
 ## Side modes
 
 - [Berry Bliss](public/berry-beef.html) — wine-world platform brawler (journey controls)
-- [Eutopia](public/eutopia/) — separate 3D Narrator Sommelier prototype ([docs/EUTOPIA.md](docs/EUTOPIA.md))
+- [Eutopia](public/eutopia/) — Stanley Parable–style estate with branchy narrator choices ([docs/EUTOPIA.md](docs/EUTOPIA.md))
 
 ## Run locally
 
