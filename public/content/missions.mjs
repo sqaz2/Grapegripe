@@ -38,6 +38,8 @@ export const missionDefinitions = Object.freeze({
       { id: 'press-tippler-receipt', objectiveId: 'press-tippler-receipt', kind: 'clue-receipt', position: [560, 1000], radius: 48 },
       { id: 'press-tippler-door', kind: 'tippler-door', position: [717, 795], radius: 58 },
       { id: 'press-tippler-snack', objectiveId: 'press-tippler-snack', kind: 'tippler-snack', position: [717, 760], radius: 48 },
+      // Corkscrew Curfew: sticky receipt clue → Vineway side stunt (bounce corkscrew off velvet rope into lever).
+      { id: 'press-curfew-receipt', objectiveId: 'press-curfew-receipt', kind: 'clue-curfew', position: [390, 980], radius: 48 },
     ],
     encounters: [
       { id: 'press-ambush', position: [478, 920], trigger: 118, types: ['sourling', 'brute', 'moth'] },
@@ -119,5 +121,10 @@ export const sideviewDefinition = Object.freeze({
     y: 395,
     guestLine: "Guest said 'notes of regret.'",
   },
+  // Corkscrew Curfew stunt: bounce stolen corkscrew off velvet rope into emergency cork-pop lever before vinegar fog.
+  velvetRope: { x: 1180, y: 360, width: 18, height: 160 },
+  stolenCorkscrew: { x: 980, y: 420 },
+  corkPopLever: { x: 1480, y: 390 },
+  vinegarFog: { fillSeconds: 14 },
   checkpoints: [110, 625, 1065, 1485, 1930, 2360, 2745],
 });
