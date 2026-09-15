@@ -29,11 +29,18 @@ test('beat schema validates and start beat is playable', () => {
   assert.ok(beats[START_BEAT_ID].doors.right.next);
 });
 
-test('vertical slice reaches brochure and glitch endings', () => {
-  const endings = Object.values(beats).filter((b) => b.kind === 'ending');
-  assert.ok(endings.some((e) => e.id === 'ending-brochure' && e.mood === 'brochure'));
-  assert.ok(endings.some((e) => e.id === 'ending-glitch' && e.mood === 'glitch'));
+test('vertical slice has denser branches and multiple brochure/glitch endings', () => {
+  const list = Object.values(beats);
+  const endings = list.filter((b) => b.kind === 'ending');
+  const rooms = list.filter((b) => b.kind === 'beat');
+  assert.ok(rooms.length >= 5, 'expected a branchy room tree, not a single left/right gag');
+  assert.ok(endings.length >= 4, 'expected multiple endings');
+  assert.ok(endings.some((e) => e.mood === 'brochure'));
+  assert.ok(endings.some((e) => e.mood === 'glitch'));
   assert.ok(endings.every((e) => typeof e.epilogue === 'string' && e.epilogue.length > 20));
+  assert.ok(rooms.every((b) => b.narrator.length >= 3), 'narrator lines should be denser than a one-liner');
+  assert.ok(rooms.every((b) => b.setDressing), 'beats need set dressing ids for art direction');
+  assert.ok(rooms.every((b) => b.consequenceHint), 'beats need readable consequence hints');
 });
 
 test('eutopia HTML pins three via import map and loads local module', () => {
@@ -41,16 +48,33 @@ test('eutopia HTML pins three via import map and loads local module', () => {
   assert.match(html, /"three":\s*"https:\/\/cdn\.jsdelivr\.net\/npm\/three@0\.170\.0\/build\/three\.module\.js"/);
   assert.match(html, /src="\.\/eutopia\.js"/);
   assert.match(html, /type="importmap"/);
+  assert.match(html, /id="consequence"/);
+  assert.match(html, /id="path-log"/);
   const js = readFileSync(resolve(root, 'public/eutopia/eutopia.js'), 'utf8');
   assert.match(js, /from 'three'/);
   assert.match(js, /from '\.\/beats\.mjs'/);
+  assert.match(js, /setDressing|dressAtrium|bottleChandelier/);
   assert.doesNotMatch(js, /journey\.js|game\.js|campaign\.mjs/);
 });
 
 test('main start screen links Eutopia without rewriting 2D campaign files for story', () => {
   const index = readFileSync(resolve(root, 'public/index.html'), 'utf8');
   assert.match(index, /href="\.\/eutopia\/"/);
-  // Campaign modules remain the 2D source of truth — eutopia must not live there.
   const campaign = readFileSync(resolve(root, 'public/content/campaign.mjs'), 'utf8');
   assert.doesNotMatch(campaign, /eutopia|Eutopia|Narrator Sommelier/i);
+});
+
+test('all beat doors are reachable from lobby within a small depth', () => {
+  const seen = new Set();
+  const queue = [START_BEAT_ID];
+  while (queue.length) {
+    const id = queue.shift();
+    if (seen.has(id)) continue;
+    seen.add(id);
+    const beat = beats[id];
+    if (beat.kind === 'beat') {
+      queue.push(beat.doors.left.next, beat.doors.right.next);
+    }
+  }
+  assert.equal(seen.size, Object.keys(beats).length);
 });
